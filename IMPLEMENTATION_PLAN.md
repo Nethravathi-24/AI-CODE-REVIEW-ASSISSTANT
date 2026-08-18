@@ -676,43 +676,43 @@ class Settings(BaseSettings):
 ## 18. Implementation Milestones
 
 ```
-MILESTONE 1: Project Skeleton & Typed Issue Model
+MILESTONE 1: Project Skeleton & Typed Issue Model [COMPLETED]
    ├── Objective: Establish project directory, Pydantic schemas, settings, and base unit tests.
    ├── Files: core/issue_model.py, core/severity.py, services/config_service.py, tests/unit/test_issue_model.py
    └── Acceptance Criteria: 100% unit test pass on Issue schema serialization & severity calculation.
 
-MILESTONE 2: Static Analysis Pipeline & Basic UI
-   ├── Objective: Implement static analyzers, input validation, language detection, and Streamlit prototype.
-   ├── Files: input_handling/*, analyzers/*, core/orchestrator.py (static only), app/main.py, app/ui/*
-   └── Acceptance Criteria: User can paste Python code, run static analysis, and view issues/scores in Streamlit.
+MILESTONE 2: Static Analysis Pipeline & Orchestration [COMPLETED]
+   ├── Objective: Implement static analyzers, input validation, language detection, preprocessor, and pipeline orchestrator with error isolation.
+   ├── Files: input_handling/*, analyzers/*, orchestrator/pipeline.py, tests/unit/test_analyzers.py, tests/integration/test_static_pipeline.py
+   └── Acceptance Criteria: Python source code passes through validation, language detection, preprocessing, 5 static analyzers, and severity processing to produce structured ReviewResult & PipelineResult.
 
-MILESTONE 3: AI Layer (LangChain Chains & Prompts)
+MILESTONE 3: AI Layer (LangChain Chains & Prompts) [PLANNED - Future Work]
    ├── Objective: Build LLM client wrapper and LangChain chains for detection and explanation.
    ├── Files: ai/llm_client.py, ai/chains/*, prompts/*, tests/unit/test_ai_chains.py
    └── Acceptance Criteria: AI detection & explanation chains execute reliably against mocked and live API calls.
 
-MILESTONE 4: Result Fusion, Deduplication, & Confidence
+MILESTONE 4: Result Fusion, Deduplication, & Confidence [PLANNED - Future Work]
    ├── Objective: Implement fusion merge logic, line range matching, and confidence calculation.
    ├── Files: fusion/merge.py, fusion/confidence.py, tests/unit/test_fusion.py
    └── Acceptance Criteria: Static and AI findings are merged into a single deduplicated Issue list.
 
-MILESTONE 5: Remediation (Fix & Test Generation + Validation)
+MILESTONE 5: Remediation (Fix & Test Generation + Validation) [PLANNED - Future Work]
    ├── Objective: Implement fix generation, test generation, and AST syntax validation loops.
    ├── Files: remediation/fix_validator.py, remediation/test_validator.py, ai/chains/fix_chain.py, ai/chains/test_chain.py
    └── Acceptance Criteria: Fixes and pytest code are validated via ast.parse before display in UI.
 
-MILESTONE 6: Scoring Engine, Complete Report, & Export
+MILESTONE 6: Scoring Engine, Complete Report, & Export [PLANNED - Future Work]
    ├── Objective: Build 7-dimension scoring engine, report builder, and Markdown/JSON exporters.
    ├── Files: core/scoring.py, report/builder.py, report/exporters.py, app/ui/components.py
    └── Acceptance Criteria: Quality score rendered accurately; reports export correctly to Markdown and JSON.
 
-MILESTONE 7: Benchmark & Evaluation Framework
+MILESTONE 7: Benchmark & Evaluation Framework [PLANNED - Future Work]
    ├── Objective: Build evaluation harness and benchmark code fixtures to calculate precision/recall metrics.
    ├── Files: tests/evaluation/eval_harness.py, tests/fixtures/*
    └── Acceptance Criteria: Benchmark suite runs automatically and outputs precision, recall, and F1 scores.
 
-MILESTONE 8: Demo Polish, Performance Optimization, & QA
-   ├── Objective: Add graceful degradation banners, progress stepper, UI polish, and final end-to-end QA.
+MILESTONE 8: UI Dashboard, Performance Optimization, & QA [PLANNED - Future Work]
+   ├── Objective: Add Streamlit UI dashboard, graceful degradation banners, progress stepper, and final end-to-end QA.
    ├── Files: app/main.py, app/ui/*, README.md
    └── Acceptance Criteria: App handles all failure modes gracefully; latency under 20s; clean UI presentation.
 ```
@@ -721,7 +721,7 @@ MILESTONE 8: Demo Polish, Performance Optimization, & QA
 
 ## 19. Detailed Task Breakdown
 
-### Milestone 1: Skeleton & Issue Model
+### Milestone 1: Skeleton & Issue Model [COMPLETED]
 - `TASK M1.1`: Create workspace package directory structure (`app/`, `core/`, `input_handling/`, `analyzers/`, `ai/`, `prompts/`, `fusion/`, `remediation/`, `report/`, `services/`, `utils/`, `tests/`).
 - `TASK M1.2`: Implement `services/config_service.py` using `pydantic-settings` to manage environment variables.
 - `TASK M1.3`: Implement `core/issue_model.py` with `CategoryEnum`, `SeverityEnum`, `DetectionSourceEnum`, `ValidationStatusEnum`, `Fix`, `GeneratedTest`, `Issue`, `CodeQualityScore`, `ReviewSummary`, `ReviewResult`, and `PipelineResult`.
@@ -729,21 +729,21 @@ MILESTONE 8: Demo Polish, Performance Optimization, & QA
 - `TASK M1.5`: Write unit tests in `tests/unit/test_issue_model.py` and `tests/unit/test_severity.py`.
 - `TASK M1.6`: Verify all Milestone 1 unit tests pass.
 
-### Milestone 2: Static Analysis Pipeline & UI Prototype
-- `TASK M2.1`: Implement `input_handling/validation.py` (empty check, size check, character limit, encoding fallback).
-- `TASK M2.2`: Implement `input_handling/language_detection.py` (heuristic extension/keyword detector).
-- `TASK M2.3`: Implement `input_handling/preprocessing.py` (line normalization, `ast.parse` check, line mapping).
+### Milestone 2: Static Analysis Pipeline & Orchestration [COMPLETED]
+- `TASK M2.1`: Implement `input_handling/validator.py` (empty check, size check, character limit, encoding fallback, binary safety, extension check).
+- `TASK M2.2`: Implement `input_handling/language_detector.py` (heuristic extension/keyword detector with manual override).
+- `TASK M2.3`: Implement `input_handling/preprocessor.py` (line normalization, `ast.parse` check, line mapping, structured syntax error issue).
 - `TASK M2.4`: Implement `analyzers/base.py` `BaseAnalyzer` interface.
-- `TASK M2.5`: Implement `analyzers/ast_analyzer.py` (bare excepts, unclosed files, deep nesting).
+- `TASK M2.5`: Implement `analyzers/ast_analyzer.py` (bare excepts, unclosed files, deep nesting, param limits).
 - `TASK M2.6`: Implement `analyzers/pyflakes_analyzer.py` wrapper.
 - `TASK M2.7`: Implement `analyzers/bandit_analyzer.py` wrapper.
 - `TASK M2.8`: Implement `analyzers/radon_analyzer.py` wrapper.
 - `TASK M2.9`: Implement `analyzers/style_analyzer.py` wrapper.
-- `TASK M2.10`: Implement static-only path in `core/orchestrator.py` with isolated error handling.
-- `TASK M2.11`: Implement Streamlit prototype in `app/main.py` & `app/ui/components.py` (text area, submit button, static results table).
-- `TASK M2.12`: Write unit tests for static analyzers in `tests/unit/test_analyzers.py`.
+- `TASK M2.10`: Implement static analysis orchestration in `orchestrator/pipeline.py` with isolated error handling and severity calculation.
+- `TASK M2.11`: Write unit tests for static analyzers in `tests/unit/test_analyzers.py` and input handling in `tests/unit/test_input_handling.py`.
+- `TASK M2.12`: Write end-to-end integration tests in `tests/integration/test_static_pipeline.py`.
 
-### Milestone 3: AI Layer Execution
+### Milestone 3: AI Layer Execution [PLANNED - Future Work]
 - `TASK M3.1`: Implement `ai/llm_client.py` initializing `ChatOpenAI` with retries.
 - `TASK M3.2`: Implement `prompts/detection_prompt.py` and `ai/chains/detection_chain.py`.
 - `TASK M3.3`: Implement `prompts/explanation_prompt.py` and `ai/chains/explanation_chain.py`.

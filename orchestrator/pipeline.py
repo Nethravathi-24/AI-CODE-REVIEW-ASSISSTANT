@@ -1,9 +1,10 @@
-"""Pipeline Orchestrator connecting input handling, static analyzers, and review reporting."""
+"""Pipeline Orchestrator coordinating input handling, static analysis, severity calculation, and result assembly."""
 
+import logging
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 
-from analyzers import BaseAnalyzer, get_default_analyzers
+from analyzers import get_default_analyzers
 from core.interfaces import (
     AIReviewerProtocol,
     FusionServiceProtocol,
@@ -11,8 +12,8 @@ from core.interfaces import (
     StaticAnalyzerProtocol,
 )
 from core.issue_model import (
-    CategoryEnum,
     CodeQualityScore,
+    DetectionSourceEnum,
     DimensionScore,
     Issue,
     PipelineError,
@@ -21,11 +22,99 @@ from core.issue_model import (
     ReviewSummary,
     SeverityEnum,
 )
-from input_handling import process_input
+from core.severity import calculate_severity
+from input_handling import (
+    InputProcessingResult,
+    PreprocessedCode,
+    process_input,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _compute_score_and_summary(issues: List[Issue]) -> tuple[CodeQualityScore, ReviewSummary]:
+    """Computes code quality score and review summary counters from a list of issues."""
+    critical_count = sum(1 for i in issues if i.severity == SeverityEnum.CRITICAL)
+    high_count = sum(1 for i in issues if i.severity == SeverityEnum.HIGH)
+    medium_count = sum(1 for i in issues if i.severity == SeverityEnum.MEDIUM)
+    low_count = sum(1 for i in issues if i.severity == SeverityEnum.LOW)
+    informational_count = sum(1 for i in issues if i.severity == SeverityEnum.INFORMATIONAL)
+    total_issues = len(issues)
+
+    # Calculate overall deductions
+    # Deductions: Critical: 25, High: 15, Medium: 8, Low: 3, Informational: 1
+    deductions = (
+        critical_count * 25.0
+        + high_count * 15.0
+        + medium_count * 8.0
+        + low_count * 3.0
+        + informational_count * 1.0
+    )
+    overall_score = max(0.0, min(100.0, round(100.0 - deductions, 2)))
+
+    if overall_score >= 90.0:
+        label = "Excellent"
+    elif overall_score >= 75.0:
+        label = "Good"
+    elif overall_score >= 50.0:
+        label = "Fair"
+    else:
+        label = "Needs Improvement"
+
+    # Category dimension grouping
+    dimension_names = ["Correctness", "Security", "Maintainability", "Readability"]
+    dimension_scores = []
+    for dim_name in dimension_names:
+        dim_issues = [i for i in issues if dim_name.lower() in i.category.value.lower()]
+        dim_issue_count = len(dim_issues)
+        dim_deductions = sum(
+            25.0 if i.severity == SeverityEnum.CRITICAL
+            else (15.0 if i.severity == SeverityEnum.HIGH
+            else (8.0 if i.severity == SeverityEnum.MEDIUM
+            else (3.0 if i.severity == SeverityEnum.LOW else 1.0)))
+            for i in dim_issues
+        )
+        dim_score_val = max(0.0, min(100.0, round(100.0 - dim_deductions, 2)))
+        dimension_scores.append(
+            DimensionScore(
+                dimension_name=dim_name,
+                score=dim_score_val,
+                weight=0.25,
+                deductions=dim_deductions,
+                issue_count=dim_issue_count,
+            )
+        )
+
+    score = CodeQualityScore(
+        overall_score=overall_score,
+        label=label,
+        dimensions=dimension_scores,
+        summary_notes=(
+            "Clean code review execution."
+            if not issues
+            else f"Static analysis completed with {total_issues} issue(s) detected."
+        ),
+    )
+
+    summary = ReviewSummary(
+        total_issues=total_issues,
+        critical_count=critical_count,
+        high_count=high_count,
+        medium_count=medium_count,
+        low_count=low_count,
+        informational_count=informational_count,
+        executive_summary=(
+            f"Review completed. {total_issues} issue(s) detected across static analyzers."
+            if issues
+            else "Review completed successfully with no static issues detected."
+        ),
+    )
+
+    return score, summary
 
 
 class CodeReviewPipeline:
-    """Orchestrates the end-to-end code review process using input handling and static analyzers."""
+    """Orchestrates the end-to-end code review process using injected component protocols."""
 
     def __init__(
         self,
@@ -34,272 +123,214 @@ class CodeReviewPipeline:
         fusion_service: Optional[FusionServiceProtocol] = None,
         report_builder: Optional[ReportBuilderProtocol] = None,
     ) -> None:
-        self.analyzers = analyzers if analyzers is not None else get_default_analyzers()
+        self.analyzers: List[StaticAnalyzerProtocol] = (
+            analyzers if analyzers is not None else get_default_analyzers()
+        )
         self.ai_reviewer = ai_reviewer
         self.fusion_service = fusion_service
         self.report_builder = report_builder
 
-    def run_pipeline(
+    def run(
         self,
-        code: str,
+        code: Union[str, bytes, None],
         filename: str = "submitted_snippet",
+        manual_override: Optional[str] = None,
         language_override: Optional[str] = None,
     ) -> PipelineResult:
-        """Executes the complete static review pipeline returning a structured PipelineResult.
+        """Executes the full code review pipeline returning a comprehensive PipelineResult.
 
-        Flow:
-        1. Input Validation & Preprocessing (size, encoding, binary safety, AST parse)
-        2. Language Detection
-        3. Deterministic Static Analysis Execution (AST, Pyflakes, Bandit, Radon, Pycodestyle)
-        4. Severity aggregation & Quality Scoring
-
-        Args:
-            code: Raw code text to analyze.
-            filename: Identifier or filename for tracking.
-            language_override: Optional manual language selection.
-
-        Returns:
-            PipelineResult: Structured execution output containing ReviewResult or PipelineError.
+        Pipeline Stages:
+        1. Input validation (stops immediately if invalid, without running analyzers)
+        2. Language detection
+        3. Code preprocessing (line normalization & AST syntax check)
+        4. Static analysis execution (with isolated error handling per analyzer)
+        5. Severity processing & scoring
+        6. Result assembly into ReviewResult and PipelineResult
         """
-        start_time = time.time()
+        override_lang = manual_override or language_override
+        start_time = time.perf_counter()
+        errors: List[PipelineError] = []
+        warnings: List[str] = []
+        is_partial_analysis = False
 
-        # 1. Input Handling & Preprocessing
-        input_result = process_input(
+        # Stage 1-3: Input Handling (Validation -> Language Detection -> Preprocessing)
+        input_result: InputProcessingResult = process_input(
             code=code,
             filename=filename,
-            manual_override=language_override,
+            manual_override=override_lang,
         )
 
+        # 1. Validation check: stop immediately if invalid
         if not input_result.is_valid:
-            err_type = (
+            error_type = (
                 input_result.validation.error_type.value
                 if input_result.validation.error_type
-                else "validation_error"
+                else "ValidationError"
             )
+            err_msg = input_result.error_message or "Input validation failed."
+            errors.append(
+                PipelineError(
+                    error_type=error_type,
+                    message=err_msg,
+                    stage="validation",
+                    is_fatal=True,
+                )
+            )
+            elapsed = round(time.perf_counter() - start_time, 4)
             return PipelineResult(
                 success=False,
-                errors=[
-                    PipelineError(
-                        error_type=err_type,
-                        message=input_result.error_message or "Input validation failed",
-                        stage="input_validation",
-                        is_fatal=True,
-                    )
-                ],
-                execution_time_seconds=round(time.time() - start_time, 3),
+                review_result=None,
+                errors=errors,
+                warnings=warnings,
+                is_partial_analysis=False,
+                execution_time_seconds=elapsed,
             )
 
-        preprocessed = input_result.preprocessed
-        normalized_code = preprocessed.normalized_code if preprocessed else code
-
-        # 2. Static Analysis Execution
-        static_issues: List[Issue] = []
-
-        # Include syntax error issue if AST parsing failed during preprocessing
-        if preprocessed and preprocessed.syntax_error:
-            static_issues.append(preprocessed.syntax_error)
-
-        for analyzer in self.analyzers:
-            try:
-                found_issues = analyzer.analyze(normalized_code, filename=filename)
-                static_issues.extend(found_issues)
-            except Exception as e:
-                # Fault isolation: individual analyzer failure does not crash pipeline
-                continue
-
-        # Deduplicate issues with identical line_start, category, and description
-        seen_keys = set()
-        unique_issues: List[Issue] = []
-        for issue in static_issues:
-            key = (issue.line_start, issue.category, issue.description)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                unique_issues.append(issue)
-
-        # 3. Severity & Issue Counting
-        crit_count = sum(1 for i in unique_issues if i.severity == SeverityEnum.CRITICAL)
-        high_count = sum(1 for i in unique_issues if i.severity == SeverityEnum.HIGH)
-        med_count = sum(1 for i in unique_issues if i.severity == SeverityEnum.MEDIUM)
-        low_count = sum(1 for i in unique_issues if i.severity == SeverityEnum.LOW)
-        info_count = sum(1 for i in unique_issues if i.severity == SeverityEnum.INFORMATIONAL)
-        total_count = len(unique_issues)
-
-        # 4. Code Quality Score Calculation
-        deductions = (crit_count * 25.0) + (high_count * 15.0) + (med_count * 5.0) + (low_count * 2.0) + (info_count * 0.5)
-        overall_score = max(0.0, min(100.0, 100.0 - deductions))
-
-        if overall_score >= 90.0:
-            score_label = "Excellent"
-        elif overall_score >= 75.0:
-            score_label = "Good"
-        elif overall_score >= 50.0:
-            score_label = "Needs Improvement"
-        else:
-            score_label = "Poor"
-
-        dimensions = [
-            DimensionScore(
-                dimension_name="Correctness",
-                score=max(0.0, 100.0 - (crit_count * 30.0 + high_count * 20.0)),
-                weight=0.25,
-                deductions=crit_count * 30.0 + high_count * 20.0,
-                issue_count=crit_count + high_count,
-            ),
-            DimensionScore(
-                dimension_name="Security",
-                score=max(
-                    0.0,
-                    100.0
-                    - sum(
-                        15.0
-                        for i in unique_issues
-                        if i.category == CategoryEnum.SECURITY
-                    ),
-                ),
-                weight=0.25,
-                deductions=sum(
-                    15.0 for i in unique_issues if i.category == CategoryEnum.SECURITY
-                ),
-                issue_count=sum(
-                    1 for i in unique_issues if i.category == CategoryEnum.SECURITY
-                ),
-            ),
-            DimensionScore(
-                dimension_name="Maintainability",
-                score=max(
-                    0.0,
-                    100.0
-                    - sum(
-                        10.0
-                        for i in unique_issues
-                        if i.category
-                        in (CategoryEnum.MAINTAINABILITY, CategoryEnum.CODE_QUALITY)
-                    ),
-                ),
-                weight=0.20,
-                deductions=sum(
-                    10.0
-                    for i in unique_issues
-                    if i.category
-                    in (CategoryEnum.MAINTAINABILITY, CategoryEnum.CODE_QUALITY)
-                ),
-                issue_count=sum(
-                    1
-                    for i in unique_issues
-                    if i.category
-                    in (CategoryEnum.MAINTAINABILITY, CategoryEnum.CODE_QUALITY)
-                ),
-            ),
-            DimensionScore(
-                dimension_name="Readability",
-                score=max(
-                    0.0,
-                    100.0
-                    - sum(
-                        5.0
-                        for i in unique_issues
-                        if i.category
-                        in (CategoryEnum.READABILITY, CategoryEnum.BEST_PRACTICE)
-                    ),
-                ),
-                weight=0.15,
-                deductions=sum(
-                    5.0
-                    for i in unique_issues
-                    if i.category
-                    in (CategoryEnum.READABILITY, CategoryEnum.BEST_PRACTICE)
-                ),
-                issue_count=sum(
-                    1
-                    for i in unique_issues
-                    if i.category
-                    in (CategoryEnum.READABILITY, CategoryEnum.BEST_PRACTICE)
-                ),
-            ),
-        ]
-
-        score_model = CodeQualityScore(
-            overall_score=round(overall_score, 1),
-            label=score_label,
-            dimensions=dimensions,
-            summary_notes=f"Calculated deterministically from {total_count} static analysis findings.",
+        detected_language = (
+            input_result.language.language if input_result.language else "python"
         )
+        preprocessed: PreprocessedCode = input_result.preprocessed
+        effective_code = preprocessed.normalized_code
+        submitted_code = input_result.validation.raw_code
 
-        summary_model = ReviewSummary(
-            total_issues=total_count,
-            critical_count=crit_count,
-            high_count=high_count,
-            medium_count=med_count,
-            low_count=low_count,
-            informational_count=info_count,
-            executive_summary=(
-                "Clean scan — no static analysis issues detected."
-                if total_count == 0
-                else f"Static analysis identified {total_count} issue(s) across {len(set(i.category for i in unique_issues))} category/categories."
-            ),
-        )
+        collected_issues: List[Issue] = []
 
-        detected_lang = (
-            input_result.language.language
-            if input_result.language
-            else "python"
-        )
+        # Check for syntax error during preprocessing
+        if not preprocessed.is_valid_syntax and preprocessed.syntax_error:
+            collected_issues.append(preprocessed.syntax_error)
+            warnings.append(
+                f"Syntax error detected on line {preprocessed.syntax_error.line_start}: "
+                f"{preprocessed.syntax_error.description}"
+            )
+            is_partial_analysis = True
 
+        # Stage 4: Static Analyzers Execution with Error Isolation (executed for syntactically valid code)
+        if preprocessed.is_valid_syntax:
+            for analyzer in self.analyzers:
+                analyzer_name = getattr(analyzer, "name", type(analyzer).__name__)
+                try:
+                    analyzer_issues = analyzer.analyze(effective_code, filename=filename)
+                    if analyzer_issues:
+                        collected_issues.extend(analyzer_issues)
+                except Exception as exc:
+                    logger.error(
+                        "Static analyzer '%s' failed during execution: %s",
+                        analyzer_name,
+                        exc,
+                        exc_info=True,
+                    )
+                    warnings.append(f"Static analyzer '{analyzer_name}' failed: {exc}")
+                    errors.append(
+                        PipelineError(
+                            error_type=type(exc).__name__,
+                            message=str(exc),
+                            stage="static_analysis",
+                            is_fatal=False,
+                        )
+                    )
+                    is_partial_analysis = True
+
+        # Stage 5: Severity Processing
+        for issue in collected_issues:
+            is_corroborated = issue.detection_source == DetectionSourceEnum.BOTH
+            issue.severity = calculate_severity(
+                category=issue.category,
+                confidence=issue.confidence,
+                is_corroborated=is_corroborated,
+            )
+
+        # Stage 6: Scoring & Summary Computation
+        score, summary = _compute_score_and_summary(collected_issues)
+
+        # Stage 7: Assemble ReviewResult & PipelineResult
         review_result = ReviewResult(
-            issues=unique_issues,
-            score=score_model,
-            summary=summary_model,
-            language=detected_lang,
-            submitted_code=code,
+            issues=collected_issues,
+            score=score,
+            summary=summary,
+            language=detected_language,
+            submitted_code=submitted_code,
         )
 
+        elapsed = round(time.perf_counter() - start_time, 4)
         return PipelineResult(
             success=True,
             review_result=review_result,
-            execution_time_seconds=round(time.time() - start_time, 3),
+            errors=errors,
+            warnings=warnings,
+            is_partial_analysis=is_partial_analysis,
+            execution_time_seconds=elapsed,
+        )
+
+    def run_pipeline(
+        self,
+        code: Union[str, bytes, None],
+        filename: str = "submitted_snippet",
+        manual_override: Optional[str] = None,
+        language_override: Optional[str] = None,
+    ) -> PipelineResult:
+        """Alias method for run()."""
+        return self.run(
+            code=code,
+            filename=filename,
+            manual_override=manual_override,
+            language_override=language_override,
         )
 
     def review_code(
         self,
-        code: str,
+        code: Union[str, bytes, None],
         filename: str = "submitted_snippet",
+        manual_override: Optional[str] = None,
         language_override: Optional[str] = None,
     ) -> ReviewResult:
-        """Helper entry point executing review and returning ReviewResult directly."""
-        pipeline_res = self.run_pipeline(
-            code=code, filename=filename, language_override=language_override
-        )
-        if pipeline_res.review_result:
-            return pipeline_res.review_result
+        """Executes the standard review flow and directly returns the ReviewResult.
 
-        # If validation error occurred, raise clean ValueError
-        error_msg = (
-            pipeline_res.errors[0].message
-            if pipeline_res.errors
-            else "Code review pipeline failed."
+        Raises:
+            ValueError: If input validation fails.
+        """
+        pipeline_res = self.run(
+            code,
+            filename=filename,
+            manual_override=manual_override,
+            language_override=language_override,
         )
-        raise ValueError(error_msg)
+        if not pipeline_res.success or pipeline_res.review_result is None:
+            err_msg = (
+                pipeline_res.errors[0].message
+                if pipeline_res.errors
+                else "Input validation failed."
+            )
+            raise ValueError(err_msg)
+        return pipeline_res.review_result
 
 
 def run_pipeline(
-    code: str,
+    code: Union[str, bytes, None],
     filename: str = "submitted_snippet",
+    manual_override: Optional[str] = None,
     language_override: Optional[str] = None,
 ) -> PipelineResult:
-    """Public helper executing pipeline and returning PipelineResult."""
+    """Public helper entry point executing pipeline and returning full PipelineResult."""
     pipeline = CodeReviewPipeline()
-    return pipeline.run_pipeline(
-        code=code, filename=filename, language_override=language_override
+    return pipeline.run(
+        code=code,
+        filename=filename,
+        manual_override=manual_override,
+        language_override=language_override,
     )
 
 
 def review_code(
-    code: str,
+    code: Union[str, bytes, None],
     filename: str = "submitted_snippet",
+    manual_override: Optional[str] = None,
     language_override: Optional[str] = None,
 ) -> ReviewResult:
-    """Public helper entry point returning ReviewResult."""
+    """Public helper entry point executing pipeline and returning ReviewResult."""
     pipeline = CodeReviewPipeline()
     return pipeline.review_code(
-        code=code, filename=filename, language_override=language_override
+        code=code,
+        filename=filename,
+        manual_override=manual_override,
+        language_override=language_override,
     )
