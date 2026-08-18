@@ -1,38 +1,35 @@
 # AI Code Review Assistant
 
-> A modular static-analysis and code review engine for Python source code that validates inputs, detects languages, preprocesses code, runs deterministic static analyzers, calculates severity deterministically, and produces structured review results.
+> A production-ready modular static-analysis and AI-powered code review engine for Python source code that validates inputs, detects languages, preprocesses code, runs deterministic static analyzers and AI reasoning chains, fuses findings, calculates 7-dimension quality scores, generates remediations and tests, and exports structured reports.
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/status-Milestone%202%20COMPLETE-green.svg)](#current-project-status)
-[![Tests](https://img.shields.io/badge/tests-83%20passed-brightgreen.svg)](#running-tests)
+[![Status](https://img.shields.io/badge/status-PRODUCTION%20READY-green.svg)](#current-project-status)
+[![Tests](https://img.shields.io/badge/tests-148%20passed-brightgreen.svg)](#running-tests)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
 ## 1. Project Overview
 
-The **AI Code Review Assistant** provides fast, explainable, and trustworthy code analysis. It bridges the gap between raw linters and higher-level code reviews by orchestrating multiple static analysis tools into a unified, typed domain model with deterministic severity calculation and quality scoring.
-
-### Current Milestone 2 Focus: Static Analysis Pipeline
-The current implementation completes **Milestone 2 (Static-Analysis Pipeline & Orchestration)**. It provides a complete, deterministic Python static review pipeline that operates locally with zero external network dependencies or API keys.
+The **AI Code Review Assistant** provides fast, explainable, and trustworthy code analysis. It bridges the gap between raw linters and higher-level code reviews by orchestrating multiple static analysis tools and optional AI reasoning chains into a unified, typed domain model with deterministic 7-dimension quality scoring and actionable fix recommendations.
 
 ---
 
-## 2. Implemented Milestone 2 Pipeline
+## 2. Complete End-to-End Architecture & Flow
 
-The static review pipeline follows a strict linear execution sequence with early-stop validation gates and isolated analyzer error handling:
+The review pipeline follows a strict linear execution sequence with early-stop validation gates, isolated analyzer error handling, and graceful AI fallback:
 
 ```text
-Input (Code String / Bytes / File)
+Input Code / Bytes / File Upload
   │
   ▼
 1. Validation (input_handling/validator.py)
-   ├─► INVALID ──► STOP immediately (no analyzers run; returns failure PipelineResult)
+   ├─► INVALID ──► STOP immediately (returns failure PipelineResult)
    └─► VALID ──► Continue
   │
   ▼
 2. Language Detection (input_handling/language_detector.py)
-   ├─► Heuristic keyword pattern signatures & file extension detection (.py, .pyw)
+   ├─► Signature matching & extension heuristics (.py, .pyw)
    └─► Manual language override support
   │
   ▼
@@ -41,7 +38,7 @@ Input (Code String / Bytes / File)
    └─► AST syntax parsing check (captures structured SYNTAX_ERROR issue if unparseable)
   │
   ▼
-4. Static Analyzers Execution (analyzers/)
+4. Static Analysis Execution (analyzers/)
    ├─► AST Structural Analyzer (bare excepts, unclosed files, deep nesting, param limits)
    ├─► Pyflakes Analyzer (unused imports, undefined names, unused variables)
    ├─► Bandit Security Analyzer (eval/exec, hardcoded secrets, unsafe calls)
@@ -50,17 +47,32 @@ Input (Code String / Bytes / File)
    │  [Error Isolation: Failing analyzers log errors & continue remaining analyzers]
   │
   ▼
-5. Issue Collection
-   └─► Combines findings from all successfully executed analyzers into a unified List[Issue]
+5. AI Review Engine (ai/) [Optional / Graceful Degradation]
+   ├─► LLM reasoning for logic flaws, runtime risks, edge cases, and maintainability
+   └─► Automatically falls back to static-only mode if OPENAI_API_KEY is missing
   │
   ▼
-6. Severity Processing (core/severity.py)
-   └─► Applies deterministic calculate_severity() mapping to all collected issues
+6. Result Fusion Engine (fusion/)
+   ├─► Normalizes and deduplicates static and AI findings
+   └─► Boosts confidence when independent static and AI sources corroborate
   │
   ▼
-7. Result Assembly
-   ├─► ReviewResult (issues, CodeQualityScore, ReviewSummary, language, submitted_code)
-   └─► PipelineResult (success, review_result, errors, warnings, is_partial_analysis, execution_time)
+7. Severity Engine (core/severity.py)
+   └─► Computes final deterministic severity levels (CRITICAL, HIGH, MEDIUM, LOW, INFORMATIONAL)
+  │
+  ▼
+8. 7-Dimension Quality Scoring (core/scoring.py)
+   └─► Deducts points across Correctness (25%), Security (25%), Maintainability (15%), Readability (10%), Performance (10%), Best Practices (10%), Testability (5%)
+  │
+  ▼
+9. Remediation & Test Generation (remediation/)
+   ├─► Generates suggested fixes, unified diffs, and AST syntax validation
+   └─► Generates executable pytest regression test cases
+  │
+  ▼
+10. Report Building & Streamlit UI (report/ & app/main.py)
+    ├─► Interactive Streamlit dashboard with quality gauges, filters, and cards
+    └─► Report Exporters for Markdown, JSON, and PDF
 ```
 
 ---
@@ -76,6 +88,8 @@ Input (Code String / Bytes / File)
   - `bandit` (security vulnerability and unsafe pattern scanner)
   - `radon` (cyclomatic complexity metrics)
   - `pycodestyle` (PEP 8 style and readability linter)
+- **AI Engine**: LangChain & OpenAI API (`gpt-4o`, `gpt-4o-mini`)
+- **User Interface**: Streamlit web application (`app/main.py`)
 - **Testing**: `pytest`, `pytest-mock`
 
 ---
@@ -84,39 +98,55 @@ Input (Code String / Bytes / File)
 
 ```text
 AI-CODE-REVIEW-ASSISSTANT/
+├── ai/                      # AI LLM reasoning engine & fallback handlers
+│   ├── mock_reviewer.py     # Deterministic mock reviewer for offline tests
+│   ├── models.py            # Structured LLM reasoning schemas
+│   ├── openai_reviewer.py   # OpenAI & LangChain integration
+│   ├── prompts.py           # Review prompts and system instructions
+│   └── reviewer.py          # AI reviewer factory function
 ├── analyzers/               # Deterministic static analyzer wrappers
-│   ├── ast_analyzer.py      # Custom AST structural walker (bare except, leaks, nesting)
+│   ├── ast_analyzer.py      # Custom AST structural walker
 │   ├── bandit_analyzer.py   # Bandit security analyzer wrapper
 │   ├── base.py              # BaseAnalyzer abstract base class
 │   ├── pyflakes_analyzer.py # Pyflakes linter wrapper
-│   ├── radon_analyzer.py    # Radon cyclomatic complexity analyzer wrapper
+│   ├── radon_analyzer.py    # Radon cyclomatic complexity analyzer
 │   └── style_analyzer.py    # PEP 8 pycodestyle wrapper
+├── app/                     # Streamlit web application (Canonical UI)
+│   ├── main.py              # Official Streamlit entry point
+│   └── ui/                  # UI components and view layouts
+│       └── components.py    # Streamlit dashboard & card components
 ├── config/                  # Configuration settings facade
-│   └── settings.py          # Settings instance
-├── core/                    # Core domain layer (independent of UI and external services)
-│   ├── interfaces.py        # Shared protocol contracts (StaticAnalyzerProtocol, etc.)
+├── core/                    # Core domain layer
+│   ├── interfaces.py        # Shared protocol contracts
 │   ├── issue_model.py       # Pydantic domain models (Issue, ReviewResult, PipelineResult)
+│   ├── scoring.py           # 7-Dimension Quality Scoring engine
 │   └── severity.py          # Deterministic severity calculation engine
-├── docs/                    # Architecture and developer workflow documentation
-│   ├── ARCHITECTURE.md      # Detailed system architecture and data contracts
-│   ├── MILESTONE_2_TASKS.md # Milestone 2 task and issue breakdown
-│   └── TEAM_WORKFLOW.md     # Team collaboration and contribution workflow
+├── docs/                    # Architecture and developer documentation
+├── fusion/                  # Finding reconciliation & deduplication engine
+│   ├── deduplication.py     # Fuzzy line and category deduplication rules
+│   ├── fusion_service.py    # Merges static and AI findings into canonical issues
+│   └── models.py            # Fusion configuration models
 ├── input_handling/          # Input ingestion, validation, and preprocessing
 │   ├── language_detector.py # Language detection heuristics & overrides
-│   ├── models.py            # Input handling data schemas (ValidationResult, PreprocessedCode)
+│   ├── models.py            # Input handling data schemas
 │   ├── preprocessor.py      # CRLF normalization & AST syntax checking
 │   └── validator.py         # Boundary, size, encoding, and file-type validation
 ├── orchestrator/            # Pipeline coordination layer
-│   ├── pipeline.py          # CodeReviewPipeline, run_pipeline, review_code
-│   └── __init__.py          # Public entry points
+│   └── pipeline.py          # CodeReviewPipeline, run_pipeline, review_code
+├── remediation/             # Fix and test generation layer
+│   ├── fix_generator.py     # Automated fix & diff generator
+│   ├── test_generator.py    # Automated pytest unit test generator
+│   └── validator.py         # Safe AST syntax check validator
+├── report/                  # Structured report export engine
+│   ├── json_report.py       # Pretty JSON exporter
+│   ├── markdown_report.py   # Structured Markdown exporter
+│   ├── pdf_report.py        # PDF exporter with safe fallback
+│   └── report_builder.py    # ReportBuilder facade
 ├── services/                # Application support services
-│   └── config_service.py    # Pydantic-Settings environment variable loader
-├── tests/                   # Test suite
-│   ├── integration/         # End-to-end static pipeline integration tests
-│   └── unit/                # Unit tests for config, contracts, issues, severity, analyzers, input
+├── tests/                   # Comprehensive unit and integration test suite
 ├── .env.example             # Example environment variable file
 ├── requirements.txt         # Project dependencies
-└── README.md                # This documentation file
+└── README.md                # Project documentation
 ```
 
 ---
@@ -126,7 +156,6 @@ AI-CODE-REVIEW-ASSISSTANT/
 ### Prerequisites
 * **Python**: Version 3.10 or higher
 * **Git**: Version 2.x+
-* **Package Manager**: `pip` or `uv`
 
 ### Step-by-Step Installation
 
@@ -145,9 +174,6 @@ AI-CODE-REVIEW-ASSISSTANT/
    # On Windows (PowerShell):
    python -m venv venv
    .\venv\Scripts\Activate.ps1
-
-   # On Windows (Command Prompt):
-   .\venv\Scripts\activate.bat
    ```
 
 3. **Install dependencies**:
@@ -155,25 +181,13 @@ AI-CODE-REVIEW-ASSISSTANT/
    pip install -r requirements.txt
    ```
 
-   *Alternatively, if using `uv`:*
-   ```bash
-   uv pip install -r requirements.txt
-   ```
-
 ---
 
 ## 6. Environment & Configuration
 
-Configuration is managed centrally via `pydantic-settings` in [`services/config_service.py`](services/config_service.py).
-
-### Environment File Setup
 Copy `.env.example` to create your local `.env`:
 ```bash
-# On Linux/macOS:
 cp .env.example .env
-
-# On Windows:
-copy .env.example .env
 ```
 
 ### Supported Configuration Variables
@@ -182,27 +196,41 @@ copy .env.example .env
 |---|---|---|
 | `MAX_FILE_SIZE_KB` | `200` | Maximum allowable file size in kilobytes |
 | `MAX_CODE_CHARS` | `50000` | Maximum character count for submitted snippets |
-| `ENVIRONMENT` | `development` | Runtime environment (`development`, `staging`, `production`) |
-| `OPENAI_API_KEY` | `""` | *(Optional — not required for Milestone 2 static analysis)* |
-| `OPENAI_MODEL` | `gpt-4o-mini` | *(Optional — for future AI milestones)* |
-| `AI_TEMPERATURE` | `0.2` | *(Optional — for future AI milestones)* |
+| `ENVIRONMENT` | `development` | Runtime environment (`development`, `production`) |
+| `OPENAI_API_KEY` | `""` | Optional OpenAI API Key for AI review mode |
+| `OPENAI_MODEL` | `gpt-4o` | Model name for OpenAI reviewer |
 
-> **Note**: No API keys or external services are required to run the Milestone 2 static review pipeline. The pipeline executes 100% locally and offline.
+> **Static-Only Mode**: If `OPENAI_API_KEY` is missing or invalid, the application automatically operates in static-only mode without crashing or failing.
 
 ---
 
-## 7. Running the Static Review Pipeline
+## 7. Running the Web Application
 
-You can invoke the pipeline programmatically in Python using either `run_pipeline()` (for full execution metadata) or `review_code()` (for direct review results):
+Launch the Streamlit web interface:
 
-### Example 1: Full Pipeline Execution (`run_pipeline`)
+```bash
+python -m streamlit run app/main.py
+```
+
+Open your browser to `http://localhost:8501`.
+
+Features available in the web UI:
+- Code snippet text area & `.py` file drag-and-drop uploader.
+- Toggle between AI Reasoning and Static-Only mode.
+- OpenAI connection status indicator.
+- 7-Dimension Score Dashboard & Severity Counter Summary.
+- Interactive multi-select category and severity filters.
+- Expandable finding cards with why-it-matters explanations, unified diff fixes, and generated pytest cases.
+- One-click report downloads in Markdown, JSON, and PDF formats.
+
+---
+
+## 8. Programmatic Pipeline Execution
 
 ```python
 from orchestrator import run_pipeline
 
 code_snippet = """
-import sys
-
 def execute_payload(user_input: str):
     try:
         return eval(user_input)
@@ -210,89 +238,32 @@ def execute_payload(user_input: str):
         return None
 """
 
-# Run the complete static pipeline
 result = run_pipeline(code_snippet, filename="sample.py")
 
-# Check execution status
 if result.success:
     review = result.review_result
-    print(f"Language Detected: {review.language}")
-    print(f"Quality Score:     {review.score.overall_score}/100 ({review.score.label})")
-    print(f"Total Issues:      {review.summary.total_issues}")
-    print(f"Execution Time:    {result.execution_time_seconds}s\n")
-
-    for idx, issue in enumerate(review.issues, 1):
-        print(f"[{idx}] {issue.severity.value.upper()} | {issue.category.value} (Tool: {issue.detecting_tool})")
-        print(f"    Line {issue.line_start}: {issue.description}")
-        print(f"    Why it matters: {issue.why_it_matters}\n")
-else:
-    print("Validation failed:")
-    for err in result.errors:
-        print(f"  - [{err.stage}] {err.message}")
-```
-
-### Example 2: Direct Review Result (`review_code`)
-
-```python
-from orchestrator import review_code
-
-review = review_code("def add(a, b):\n    return a + b\n")
-print(f"Score: {review.score.overall_score} ({review.score.label})")
-print(f"Issues: {len(review.issues)}")
+    print(f"Overall Score: {review.score.overall_score}/100 ({review.score.label})")
+    print(f"Total Issues:  {review.summary.total_issues}")
+    for issue in review.issues:
+        print(f" - [{issue.severity.value.upper()}] Line {issue.line_start}: {issue.description}")
 ```
 
 ---
 
-## 8. Running Tests
+## 9. Running Tests
 
-Run the complete test suite using `pytest`:
+Run the full test suite with `pytest`:
 
 ```bash
-# Standard pytest execution
 pytest -v
-
-# Or using uv:
-uv run --with-requirements requirements.txt pytest -v
 ```
 
-### Running Specific Test Modules
-
-```bash
-# Run unit tests only
-pytest tests/unit/ -v
-
-# Run static analyzers unit tests
-pytest tests/unit/test_analyzers.py -v
-
-# Run input handling unit tests
-pytest tests/unit/test_input_handling.py -v
-
-# Run end-to-end integration tests
-pytest tests/integration/test_static_pipeline.py -v
-```
+All **148 tests** are passing.
 
 ---
 
-## 9. Current Project Status
+## 10. Security Boundaries & Critical Rules
 
-- **Milestone 1 — Core Schemas & Contracts**: **COMPLETE**
-  - Typed Pydantic v2 schemas (`Issue`, `Fix`, `GeneratedTest`, `ReviewResult`, `PipelineResult`)
-  - Protocol contracts (`StaticAnalyzerProtocol`, `AIReviewerProtocol`, `FusionServiceProtocol`, `ReportBuilderProtocol`)
-  - Deterministic severity engine (`core/severity.py`)
-  - Centralized configuration service (`services/config_service.py`)
-
-- **Milestone 2 — Static Analysis Pipeline & Orchestration**: **COMPLETE**
-  - Input validation, boundary checks, and binary safety (`input_handling/validator.py`)
-  - Python language detection and signature matching (`input_handling/language_detector.py`)
-  - Code preprocessing, CRLF normalization, and syntax checking (`input_handling/preprocessor.py`)
-  - 5 deterministic static analyzers (`ast`, `pyflakes`, `bandit`, `radon`, `style`)
-  - Orchestrator pipeline integration with per-analyzer error isolation (`orchestrator/pipeline.py`)
-  - Comprehensive unit and integration test suite (**83 passing tests**)
-
-- **Milestone 3+ — AI Reasoning, Fusion, Fix/Test Remediation, & UI**: *PLANNED (Future Work)*
-  - LLM detection and explanation chains (Milestone 3)
-  - Finding fusion & deduplication engine (Milestone 4)
-  - Validated fix and test generation (Milestone 5)
-  - 7-dimension scoring breakdown and report exporters (Milestone 6)
-  - Benchmark evaluation suite (Milestone 7)
-  - Streamlit dashboard UI (Milestone 8)
+- **Zero Code Execution Guarantee**: Submitted user code, generated fixes, and generated test cases are treated strictly as plain text data. The system **NEVER** executes submitted code via `exec()`, `eval()`, or subprocess invocation.
+- **AST Syntax Checking**: Syntax validation is performed purely via `ast.parse()`.
+- **Secret Protection**: API keys and environment credentials are loaded from environment variables and `.env` files (gitignored). API keys are never exposed in UI outputs or log logs.
