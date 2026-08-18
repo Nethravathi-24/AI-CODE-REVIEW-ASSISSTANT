@@ -1,7 +1,7 @@
 """Shared component contracts and interface protocols for parallel development."""
 
 from typing import List, Optional, Protocol, runtime_checkable
-from core.issue_model import Issue, ReviewResult
+from core.issue_model import Fix, GeneratedTest, Issue, ReviewResult
 
 
 @runtime_checkable
@@ -76,12 +76,35 @@ class ReportBuilderProtocol(Protocol):
     """
 
     def build(self, result: ReviewResult) -> str:
-        """Assembles and formats a ReviewResult into a structured report string.
-        
-        Args:
-            result: Complete ReviewResult model instance.
-
-        Returns:
-            str: Formatted report text (e.g. Markdown or JSON).
-        """
+        """Assembles and formats a ReviewResult into a structured report string."""
         ...
+
+
+@runtime_checkable
+class FixGeneratorProtocol(Protocol):
+    """Contract for automated code remediation and fix generation."""
+
+    def generate_fix(self, issue: Issue, code: str) -> Optional[Fix]:
+        """Generates a suggested fix and corrected code snippet for an issue."""
+        ...
+
+
+@runtime_checkable
+class TestGeneratorProtocol(Protocol):
+    """Contract for executable unit test case generation."""
+
+    __test__ = False
+
+    def generate_test(self, issue: Issue, code: str) -> Optional[GeneratedTest]:
+        """Generates a pytest test case targeting a reported code issue."""
+        ...
+
+
+@runtime_checkable
+class ReportExporterProtocol(Protocol):
+    """Contract for report export serialization (JSON, Markdown, PDF)."""
+
+    def export(self, result: ReviewResult) -> str:
+        """Serializes ReviewResult payload into target format string or binary payload."""
+        ...
+

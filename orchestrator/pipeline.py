@@ -12,6 +12,7 @@ from core.interfaces import (
     StaticAnalyzerProtocol,
 )
 from core.issue_model import (
+    CategoryEnum,
     CodeQualityScore,
     DetectionSourceEnum,
     DimensionScore,
@@ -32,85 +33,10 @@ from input_handling import (
 logger = logging.getLogger(__name__)
 
 
-def _compute_score_and_summary(issues: List[Issue]) -> tuple[CodeQualityScore, ReviewSummary]:
-    """Computes code quality score and review summary counters from a list of issues."""
-    critical_count = sum(1 for i in issues if i.severity == SeverityEnum.CRITICAL)
-    high_count = sum(1 for i in issues if i.severity == SeverityEnum.HIGH)
-    medium_count = sum(1 for i in issues if i.severity == SeverityEnum.MEDIUM)
-    low_count = sum(1 for i in issues if i.severity == SeverityEnum.LOW)
-    informational_count = sum(1 for i in issues if i.severity == SeverityEnum.INFORMATIONAL)
-    total_issues = len(issues)
+from core.scoring import compute_score_and_summary
 
-    # Calculate overall deductions
-    # Deductions: Critical: 25, High: 15, Medium: 8, Low: 3, Informational: 1
-    deductions = (
-        critical_count * 25.0
-        + high_count * 15.0
-        + medium_count * 8.0
-        + low_count * 3.0
-        + informational_count * 1.0
-    )
-    overall_score = max(0.0, min(100.0, round(100.0 - deductions, 2)))
-
-    if overall_score >= 90.0:
-        label = "Excellent"
-    elif overall_score >= 75.0:
-        label = "Good"
-    elif overall_score >= 50.0:
-        label = "Fair"
-    else:
-        label = "Needs Improvement"
-
-    # Category dimension grouping
-    dimension_names = ["Correctness", "Security", "Maintainability", "Readability"]
-    dimension_scores = []
-    for dim_name in dimension_names:
-        dim_issues = [i for i in issues if dim_name.lower() in i.category.value.lower()]
-        dim_issue_count = len(dim_issues)
-        dim_deductions = sum(
-            25.0 if i.severity == SeverityEnum.CRITICAL
-            else (15.0 if i.severity == SeverityEnum.HIGH
-            else (8.0 if i.severity == SeverityEnum.MEDIUM
-            else (3.0 if i.severity == SeverityEnum.LOW else 1.0)))
-            for i in dim_issues
-        )
-        dim_score_val = max(0.0, min(100.0, round(100.0 - dim_deductions, 2)))
-        dimension_scores.append(
-            DimensionScore(
-                dimension_name=dim_name,
-                score=dim_score_val,
-                weight=0.25,
-                deductions=dim_deductions,
-                issue_count=dim_issue_count,
-            )
-        )
-
-    score = CodeQualityScore(
-        overall_score=overall_score,
-        label=label,
-        dimensions=dimension_scores,
-        summary_notes=(
-            "Clean code review execution."
-            if not issues
-            else f"Static analysis completed with {total_issues} issue(s) detected."
-        ),
-    )
-
-    summary = ReviewSummary(
-        total_issues=total_issues,
-        critical_count=critical_count,
-        high_count=high_count,
-        medium_count=medium_count,
-        low_count=low_count,
-        informational_count=informational_count,
-        executive_summary=(
-            f"Review completed. {total_issues} issue(s) detected across static analyzers."
-            if issues
-            else "Review completed successfully with no static issues detected."
-        ),
-    )
-
-    return score, summary
+# Alias for internal backwards compatibility
+_compute_score_and_summary = compute_score_and_summary
 
 
 class CodeReviewPipeline:
@@ -137,16 +63,7 @@ class CodeReviewPipeline:
         manual_override: Optional[str] = None,
         language_override: Optional[str] = None,
     ) -> PipelineResult:
-        """Executes the full code review pipeline returning a comprehensive PipelineResult.
-
-        Pipeline Stages:
-        1. Input validation (stops immediately if invalid, without running analyzers)
-        2. Language detection
-        3. Code preprocessing (line normalization & AST syntax check)
-        4. Static analysis execution (with isolated error handling per analyzer)
-        5. Severity processing & scoring
-        6. Result assembly into ReviewResult and PipelineResult
-        """
+        """Executes the full code review pipeline returning a comprehensive PipelineResult."""
         override_lang = manual_override or language_override
         start_time = time.perf_counter()
         errors: List[PipelineError] = []
@@ -193,25 +110,25 @@ class CodeReviewPipeline:
         effective_code = preprocessed.normalized_code
         submitted_code = input_result.validation.raw_code
 
-        collected_issues: List[Issue] = []
+        static_issues: List[Issue] = []
 
         # Check for syntax error during preprocessing
         if not preprocessed.is_valid_syntax and preprocessed.syntax_error:
-            collected_issues.append(preprocessed.syntax_error)
+            static_issues.append(preprocessed.syntax_error)
             warnings.append(
                 f"Syntax error detected on line {preprocessed.syntax_error.line_start}: "
                 f"{preprocessed.syntax_error.description}"
             )
             is_partial_analysis = True
 
-        # Stage 4: Static Analyzers Execution with Error Isolation (executed for syntactically valid code)
+        # Stage 4: Static Analyzers Execution
         if preprocessed.is_valid_syntax:
             for analyzer in self.analyzers:
                 analyzer_name = getattr(analyzer, "name", type(analyzer).__name__)
                 try:
                     analyzer_issues = analyzer.analyze(effective_code, filename=filename)
                     if analyzer_issues:
-                        collected_issues.extend(analyzer_issues)
+                        static_issues.extend(analyzer_issues)
                 except Exception as exc:
                     logger.error(
                         "Static analyzer '%s' failed during execution: %s",
@@ -230,7 +147,21 @@ class CodeReviewPipeline:
                     )
                     is_partial_analysis = True
 
-        # Stage 5: Severity Processing
+        # Stage 5: AI Review Execution (Optional / Graceful Degrade)
+        ai_issues: List[Issue] = []
+        if self.ai_reviewer and preprocessed.is_valid_syntax:
+            try:
+                ai_issues = self.ai_reviewer.review(effective_code, static_issues=static_issues)
+            except Exception as exc:
+                logger.error("AI Reviewer failed: %s", exc, exc_info=True)
+                warnings.append(f"AI review skipped due to execution error: {exc}")
+
+        # Stage 6: Result Fusion & Deduplication
+        from fusion import FusionService
+        fusion_svc = self.fusion_service or FusionService()
+        collected_issues = fusion_svc.fuse(static_issues, ai_issues)
+
+        # Stage 7: Severity Recalculation
         for issue in collected_issues:
             is_corroborated = issue.detection_source == DetectionSourceEnum.BOTH
             issue.severity = calculate_severity(
@@ -239,10 +170,21 @@ class CodeReviewPipeline:
                 is_corroborated=is_corroborated,
             )
 
-        # Stage 6: Scoring & Summary Computation
+        # Stage 8: Remediation (Fix & Test Generation)
+        from remediation import FixGenerator, TestGenerator
+        fix_gen = FixGenerator()
+        test_gen = TestGenerator()
+
+        for issue in collected_issues:
+            if not issue.fix:
+                issue.fix = fix_gen.generate_fix(issue, effective_code)
+            if not issue.generated_test:
+                issue.generated_test = test_gen.generate_test(issue, effective_code)
+
+        # Stage 9: 7-Dimension Quality Scoring & Summary
         score, summary = _compute_score_and_summary(collected_issues)
 
-        # Stage 7: Assemble ReviewResult & PipelineResult
+        # Stage 10: ReviewResult Assembly
         review_result = ReviewResult(
             issues=collected_issues,
             score=score,
