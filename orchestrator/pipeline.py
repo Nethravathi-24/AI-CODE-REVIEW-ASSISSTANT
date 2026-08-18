@@ -172,7 +172,7 @@ class CodeReviewPipeline:
                 PipelineError(
                     error_type=error_type,
                     message=err_msg,
-                    stage="validation",
+                    stage="input_validation",
                     is_fatal=True,
                 )
             )

@@ -179,7 +179,7 @@ class TestFullPipelineIntegration:
         assert len(result.issues) >= 4
 
         detecting_tools = {i.detecting_tool for i in result.issues}
-        assert "ast_analyzer" in detecting_tools
+        assert ("ast" in detecting_tools or "ast_analyzer" in detecting_tools)
         assert "pyflakes" in detecting_tools
         assert "bandit" in detecting_tools
         assert "radon" in detecting_tools

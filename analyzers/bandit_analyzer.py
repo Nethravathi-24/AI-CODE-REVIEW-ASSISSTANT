@@ -1,169 +1,105 @@
-"""Bandit static security analyzer wrapper for scanning vulnerabilities."""
+"""Bandit security scanner wrapper detecting hardcoded secrets, eval/exec, and unsafe calls."""
 
+import ast
 import io
 import logging
-import tokenize
-from typing import Dict, List
+from typing import List
+
+from bandit.core import config, manager
 
 from analyzers.base import BaseAnalyzer
-from core.issue_model import CategoryEnum, Issue, SeverityEnum
+from core.issue_model import (
+    CategoryEnum,
+    DetectionSourceEnum,
+    Issue,
+    SeverityEnum,
+)
 
 logger = logging.getLogger(__name__)
 
-try:
-    import bandit.core.config
-    import bandit.core.manager
-    import bandit.core.meta_ast
-    import bandit.core.metrics
-    import bandit.core.node_visitor
-    import bandit.core.test_set
-    BANDIT_AVAILABLE = True
-except ImportError:
-    BANDIT_AVAILABLE = False
-    logger.warning("bandit library is not available.")
-
-# Map Bandit string severities to domain SeverityEnum
-BANDIT_SEVERITY_MAP: Dict[str, SeverityEnum] = {
-    "HIGH": SeverityEnum.HIGH,
-    "MEDIUM": SeverityEnum.MEDIUM,
-    "LOW": SeverityEnum.LOW,
-    "UNDEFINED": SeverityEnum.LOW,
-}
-
-# Map Bandit string confidence to float score
-BANDIT_CONFIDENCE_MAP: Dict[str, float] = {
-    "HIGH": 0.95,
-    "MEDIUM": 0.75,
-    "LOW": 0.50,
-    "UNDEFINED": 0.50,
-}
+# Suppress noisy bandit qualified name logger
+logging.getLogger("bandit.core.node_visitor").setLevel(logging.ERROR)
 
 
 class BanditAnalyzer(BaseAnalyzer):
-    """Static security analyzer wrapping Bandit programmatically."""
+    """Programmatic Bandit security analyzer mapping security checks to Issue models."""
 
     def __init__(self) -> None:
-        super().__init__()
-        self._config = None
-        self._test_set = None
-        if BANDIT_AVAILABLE:
-            try:
-                self._config = bandit.core.config.BanditConfig()
-                self._test_set = bandit.core.test_set.BanditTestSet(
-                    self._config, profile={}
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to initialize Bandit test set: {e}",
-                    exc_info=True,
-                )
+        self._config = config.BanditConfig()
 
     @property
     def name(self) -> str:
         return "bandit"
 
-    def analyze(
-        self, code: str, filename: str = "submitted_snippet"
-    ) -> List[Issue]:
-        """Runs Bandit security scanning in-memory without subprocesses."""
-        if (
-            not BANDIT_AVAILABLE
-            or self._test_set is None
-            or not code
-            or not code.strip()
-        ):
-            return []
-
-        fname = filename or "submitted_snippet.py"
-        encoded = code.encode("utf-8")
-        fdata = io.BytesIO(encoded)
-        data = fdata.read()
-
-        # Parse nosec comments if present
-        nosec_lines = dict()
-        fdata.seek(0)
-        try:
-            tokens = tokenize.tokenize(fdata.readline)
-            for toktype, tokval, (lineno, _), _, _ in tokens:
-                if toktype == tokenize.COMMENT:
-                    nosec_lines[lineno] = (
-                        bandit.core.manager._parse_nosec_comment(tokval)
-                    )
-        except Exception:
-            pass
-
-        fdata.seek(0)
-        metaast = bandit.core.meta_ast.BanditMetaAst()
-        metrics = bandit.core.metrics.Metrics()
-
-        try:
-            visitor = bandit.core.node_visitor.BanditNodeVisitor(
-                fname,
-                fdata,
-                metaast,
-                self._test_set,
-                False,  # debug
-                nosec_lines,
-                metrics,
-            )
-            visitor.process(data)
-        except SyntaxError:
-            # Handled by ASTAnalyzer
-            return []
-        except Exception as e:
-            logger.error(
-                f"Bandit scan error for {filename}: {e}", exc_info=True
-            )
-            return []
-
+    def analyze(self, code: str, filename: str = "submitted_snippet") -> List[Issue]:
+        """Runs Bandit security analysis in-memory on submitted source code."""
         issues: List[Issue] = []
-        for result in visitor.tester.results:
-            sev_str = str(getattr(result, "severity", "MEDIUM")).upper()
-            conf_str = str(getattr(result, "confidence", "HIGH")).upper()
 
-            severity = BANDIT_SEVERITY_MAP.get(sev_str, SeverityEnum.HIGH)
-            confidence = BANDIT_CONFIDENCE_MAP.get(conf_str, 0.85)
+        try:
+            tree = ast.parse(code, filename=filename)
+        except (SyntaxError, IndentationError):
+            # Syntax errors are handled by ASTAnalyzer; Bandit gracefully exits
+            return issues
 
-            lineno = max(1, getattr(result, "lineno", 1))
-            linerange = getattr(result, "linerange", None)
-            if linerange and len(linerange) > 0:
-                line_start = max(1, linerange[0])
-                line_end = max(line_start, linerange[-1])
+        try:
+            b_mgr = manager.BanditManager(self._config, "file")
+            fdata = io.BytesIO(code.encode("utf-8"))
+            b_mgr._execute_ast_visitor(filename, fdata, tree, {})
+        except Exception as e:
+            logger.warning("Bandit analysis execution warning: %s", str(e))
+            return issues
+
+        for b_issue in b_mgr.results:
+            line_no = getattr(b_issue, "lineno", 1)
+            line_range = getattr(b_issue, "linerange", [line_no])
+            line_end = line_range[-1] if line_range else line_no
+            if line_end < line_no:
+                line_end = line_no
+
+            snippet = self._get_code_snippet(code, line_no, line_end)
+            test_id = getattr(b_issue, "test_id", "B000")
+            b_severity = getattr(b_issue, "severity", "MEDIUM").upper()
+            b_confidence = getattr(b_issue, "confidence", "HIGH").upper()
+
+            # Map Bandit severity & confidence
+            if b_severity == "HIGH":
+                severity = SeverityEnum.HIGH
+            elif b_severity == "MEDIUM":
+                severity = SeverityEnum.HIGH if test_id in ("B307", "B102") else SeverityEnum.MEDIUM
             else:
-                line_start = lineno
-                line_end = lineno
+                severity = SeverityEnum.MEDIUM if test_id in ("B105", "B106", "B107") else SeverityEnum.LOW
 
-            test_id = getattr(result, "test_id", "SECURITY_ISSUE")
-            text = getattr(
-                result, "text", "Potential security vulnerability detected."
-            )
+            conf_score = 0.95 if b_confidence == "HIGH" else (0.80 if b_confidence == "MEDIUM" else 0.60)
 
+            # References
             refs = [test_id]
-            cwe = getattr(result, "cwe", None)
-            if cwe:
-                cwe_id = getattr(cwe, "id", None)
-                if cwe_id:
-                    refs.append(f"CWE-{cwe_id}")
-                else:
-                    refs.append(str(cwe).split()[0])
+            cwe_obj = getattr(b_issue, "cwe", None)
+            if cwe_obj and hasattr(cwe_obj, "id"):
+                refs.append(f"CWE-{cwe_obj.id}")
+            elif cwe_obj and str(cwe_obj).startswith("CWE-"):
+                refs.append(str(cwe_obj).split()[0])
 
-            why_it_matters = (
-                f"Security vulnerability detected by Bandit ({test_id}). "
-                "Insecure code constructs can lead to arbitrary code "
-                "execution, sensitive data disclosure, or injection attacks."
-            )
+            description = f"[{test_id}] {b_issue.text}"
 
             issues.append(
-                self.build_issue(
+                Issue(
+                    issue_id=self._generate_issue_id("bandit", test_id, line_no),
                     category=CategoryEnum.SECURITY,
-                    description=text,
-                    why_it_matters=why_it_matters,
-                    code=code,
-                    line_start=line_start,
-                    line_end=line_end,
                     severity=severity,
-                    confidence=confidence,
+                    confidence=conf_score,
                     file=filename,
+                    line_start=line_no,
+                    line_end=line_end,
+                    column=getattr(b_issue, "col_offset", None),
+                    code_snippet=snippet,
+                    description=description,
+                    why_it_matters=(
+                        "Security vulnerabilities in source code can allow unauthorized data access, "
+                        "remote code execution, or credential theft."
+                    ),
+                    root_cause=f"Bandit rule {test_id} triggered on unsafe pattern.",
+                    detection_source=DetectionSourceEnum.STATIC,
+                    detecting_tool="bandit",
                     references=refs,
                 )
             )

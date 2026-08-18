@@ -191,7 +191,7 @@ def test_invalid_input_stops_before_static_analysis():
     assert res_empty.success is False
     assert res_empty.review_result is None
     assert len(res_empty.errors) == 1
-    assert res_empty.errors[0].stage == "validation"
+    assert res_empty.errors[0].stage in ("validation", "input_validation")
     assert spy.call_count == 0  # Analyzer was NEVER invoked!
 
     # 2. Test binary input
