@@ -1,0 +1,26 @@
+# CODEOWNERS for AI Code Review Assistant
+# Defines code ownership across the 4-person parallel development team.
+
+# Core Domain & Orchestration (Team Lead)
+/core/                    @team-lead-developer
+/orchestrator/            @team-lead-developer
+/config/                  @team-lead-developer
+/services/                @team-lead-developer
+/IMPLEMENTATION_PLAN.md   @team-lead-developer
+
+# Static Analysis Module (Static Analysis Developer)
+/input_handling/          @static-analysis-developer
+/analyzers/               @static-analysis-developer
+
+# AI Reasoning & Prompts Module (AI Developer)
+/ai/                      @ai-developer
+/prompts/                 @ai-developer
+
+# UI, Reporting, & Evaluation Module (UI/Reporting Developer)
+/app/                     @ui-reporting-developer
+/report/                  @ui-reporting-developer
+/remediation/             @ui-reporting-developer
+/tests/evaluation/        @ui-reporting-developer
+
+# Shared Fusion Engine (Co-owned by Team Lead & AI Developer)
+/fusion/                  @team-lead-developer @ai-developer

@@ -1,0 +1,24 @@
+# Core Data & Configuration Dependencies
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# AI & LLM Orchestration
+langchain>=0.2.0
+langchain-openai>=0.1.0
+
+# Static Analysis
+pyflakes>=3.0.0
+bandit>=1.7.5
+radon>=6.0.0
+pycodestyle>=2.10.0
+
+# User Interface
+streamlit>=1.30.0
+
+# Testing
+pytest>=7.4.0
+pytest-mock>=3.11.0
+
+# Optional Auxiliary Dependencies (Not required for Milestone 1)
+# transformers>=4.30.0
+# torch>=2.0.0
