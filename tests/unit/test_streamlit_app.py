@@ -8,7 +8,7 @@ from core.issue_model import CategoryEnum, PipelineResult, ReviewResult, Severit
 from orchestrator import run_pipeline
 from tests.conftest import load_fixture
 
-APP_FILE = str((Path(__file__).resolve().parent.parent.parent / "app" / "app.py").resolve())
+APP_FILE = str((Path(__file__).resolve().parent.parent.parent / "app" / "main.py").resolve())
 
 
 def test_streamlit_app_loads_successfully():
