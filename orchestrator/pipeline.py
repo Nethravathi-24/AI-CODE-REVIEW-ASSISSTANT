@@ -1,5 +1,6 @@
 """Pipeline Orchestrator connecting input handling, static analyzers, and review reporting."""
 
+import logging
 import time
 from typing import List, Optional
 
@@ -22,6 +23,8 @@ from core.issue_model import (
     SeverityEnum,
 )
 from input_handling import process_input
+
+logger = logging.getLogger(__name__)
 
 
 class CodeReviewPipeline:
@@ -62,6 +65,7 @@ class CodeReviewPipeline:
             PipelineResult: Structured execution output containing ReviewResult or PipelineError.
         """
         start_time = time.time()
+        pipeline_warnings: List[str] = []
 
         # 1. Input Handling & Preprocessing
         input_result = process_input(
@@ -86,6 +90,7 @@ class CodeReviewPipeline:
                         is_fatal=True,
                     )
                 ],
+                warnings=pipeline_warnings,
                 execution_time_seconds=round(time.time() - start_time, 3),
             )
 
@@ -105,6 +110,10 @@ class CodeReviewPipeline:
                 static_issues.extend(found_issues)
             except Exception as e:
                 # Fault isolation: individual analyzer failure does not crash pipeline
+                analyzer_name = getattr(analyzer, "name", analyzer.__class__.__name__)
+                warning_msg = f"Analyzer '{analyzer_name}' encountered an error: {str(e)}"
+                pipeline_warnings.append(warning_msg)
+                logger.warning(warning_msg)
                 continue
 
         # Deduplicate issues with identical line_start, category, and description
@@ -256,6 +265,7 @@ class CodeReviewPipeline:
         return PipelineResult(
             success=True,
             review_result=review_result,
+            warnings=pipeline_warnings,
             execution_time_seconds=round(time.time() - start_time, 3),
         )
 
