@@ -1,108 +1,133 @@
-"""PEP 8 Style Analyzer wrapper using pycodestyle to detect formatting and readability issues."""
+"""PEP 8 style analyzer wrapping pycodestyle purely via Python API."""
 
-from typing import List
-import pycodestyle
+import logging
+from typing import List, Optional, Tuple
 
 from analyzers.base import BaseAnalyzer
-from core.issue_model import (
-    CategoryEnum,
-    DetectionSourceEnum,
-    Issue,
-    SeverityEnum,
-)
+from core.issue_model import CategoryEnum, Issue, SeverityEnum
+
+logger = logging.getLogger(__name__)
+
+try:
+    import pycodestyle
+    PYCODESTYLE_AVAILABLE = True
+except ImportError:
+    PYCODESTYLE_AVAILABLE = False
+    logger.warning("pycodestyle library is not available.")
 
 
-class _InMemoryStyleReport(pycodestyle.BaseReport):
-    """Custom in-memory pycodestyle report collecting findings without writing to stdout."""
+if PYCODESTYLE_AVAILABLE:
+    class _CustomReport(pycodestyle.BaseReport):
+        """In-memory Pycodestyle report collector."""
 
-    def __init__(self, options) -> None:
-        super().__init__(options)
-        self.findings = []
+        def __init__(self, options) -> None:
+            super().__init__(options)
+            self.errors: List[Tuple[int, int, str, str]] = []
 
-    def error(self, line_number: int, offset: int, text: str, check) -> str:
-        rule_code = text[:4]
-        message = text[5:]
-        self.findings.append({
-            "line_number": line_number,
-            "column": offset,
-            "rule_code": rule_code,
-            "message": message,
-        })
-        return rule_code
+        def error(
+            self, line_number: int, offset: int, text: str, check
+        ) -> Optional[str]:
+            code = super().error(line_number, offset, text, check)
+            if code:
+                self.errors.append((line_number, offset, code, text))
+            return code
+
+
+def _map_style_category(code_id: str) -> CategoryEnum:
+    if code_id.startswith("E9"):
+        return CategoryEnum.SYNTAX_ERROR
+    if code_id.startswith(("E4", "E7", "W6")):
+        return CategoryEnum.BEST_PRACTICE
+    return CategoryEnum.READABILITY
+
+
+def _map_style_why_it_matters(code_id: str) -> str:
+    if code_id == "E501":
+        return (
+            "Lines exceeding 79 characters reduce readability on standard "
+            "displays and create noisy side-by-side code diffs."
+        )
+    if code_id.startswith(("W291", "W293", "W391")):
+        return (
+            "Trailing whitespace and unnecessary blank lines add noise to "
+            "version control diffs and cause inconsistent formatting."
+        )
+    if code_id.startswith("E1"):
+        return (
+            "Inconsistent indentation obscures code structure and can lead to "
+            "subtle scoping or syntax errors."
+        )
+    if code_id in ("E711", "E712", "E721"):
+        return (
+            "Comparing singletons (such as None or Booleans) with '==' "
+            "instead of 'is' can trigger custom __eq__ logic and bugs."
+        )
+    return (
+        "Adhering to PEP 8 style standards ensures consistent, clean Python "
+        "code that is easy for engineering teams to read and maintain."
+    )
 
 
 class StyleAnalyzer(BaseAnalyzer):
-    """Programmatic PEP 8 style analyzer checking code formatting and readability."""
-
-    def __init__(self, max_line_length: int = 79) -> None:
-        self.max_line_length = max_line_length
-        self._style_guide = pycodestyle.StyleGuide(
-            max_line_length=self.max_line_length,
-            quiet=True,
-        )
+    """Static style analyzer running pycodestyle in-memory."""
 
     @property
     def name(self) -> str:
         return "pycodestyle"
 
-    def analyze(self, code: str, filename: str = "submitted_snippet") -> List[Issue]:
-        """Runs pycodestyle in-memory over code lines."""
+    def analyze(
+        self, code: str, filename: str = "submitted_snippet"
+    ) -> List[Issue]:
+        """Runs PEP 8 style validation against submitted source code."""
+        if not PYCODESTYLE_AVAILABLE or not code or not code.strip():
+            return []
+
+        lines = code.splitlines(keepends=True)
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] = lines[-1] + "\n"
+
         issues: List[Issue] = []
-        if not code.strip():
-            return issues
-
-        # Prepare line array with trailing newlines
-        lines = [line + "\n" for line in code.splitlines()]
-        if not lines:
-            return issues
-
-        report = _InMemoryStyleReport(self._style_guide.options)
         try:
+            style_guide = pycodestyle.StyleGuide(reporter=_CustomReport)
+            report = style_guide.options.report
+
             checker = pycodestyle.Checker(
                 filename=filename,
                 lines=lines,
-                options=self._style_guide.options,
+                options=style_guide.options,
                 report=report,
             )
             checker.check_all()
-        except Exception:
-            return issues
 
-        for item in report.findings:
-            line_no = item["line_number"]
-            col_no = item["column"]
-            rule_code = item["rule_code"]
-            msg = item["message"]
-            snippet = self._get_code_snippet(code, line_no, line_no)
+            for line_number, offset, code_id, text in report.errors:
+                category = _map_style_category(code_id)
+                why_it_matters = _map_style_why_it_matters(code_id)
 
-            is_warning = rule_code.startswith("W")
-            category = CategoryEnum.READABILITY if rule_code.startswith(("E5", "E1", "E2", "W")) else CategoryEnum.BEST_PRACTICE
-            severity = SeverityEnum.INFORMATIONAL if is_warning else SeverityEnum.LOW
+                if code_id.startswith("E9"):
+                    severity = SeverityEnum.CRITICAL
+                elif code_id in ("E711", "E712", "E721", "E722"):
+                    severity = SeverityEnum.LOW
+                else:
+                    severity = SeverityEnum.INFORMATIONAL
 
-            description = f"[{rule_code}] {msg}"
-            why_it_matters = (
-                "Adhering to PEP 8 styling conventions ensures consistency, "
-                "enhances readability, and reduces cognitive strain for code reviewers."
-            )
-
-            issues.append(
-                Issue(
-                    issue_id=self._generate_issue_id("style", rule_code, line_no),
-                    category=category,
-                    severity=severity,
-                    confidence=1.0,
-                    file=filename,
-                    line_start=line_no,
-                    line_end=line_no,
-                    column=col_no,
-                    code_snippet=snippet,
-                    description=description,
-                    why_it_matters=why_it_matters,
-                    root_cause=f"PEP 8 style guide rule {rule_code} violated.",
-                    detection_source=DetectionSourceEnum.STATIC,
-                    detecting_tool="pycodestyle",
-                    references=[f"PEP-8.{rule_code}"],
+                issues.append(
+                    self.build_issue(
+                        category=category,
+                        description=text,
+                        why_it_matters=why_it_matters,
+                        code=code,
+                        line_start=max(1, line_number),
+                        line_end=max(1, line_number),
+                        column=offset,
+                        severity=severity,
+                        confidence=1.0,
+                        file=filename,
+                        references=["PEP 8", code_id],
+                    )
                 )
+        except Exception as e:
+            logger.error(
+                f"Pycodestyle error for {filename}: {e}", exc_info=True
             )
 
         return issues

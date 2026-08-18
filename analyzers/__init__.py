@@ -1,4 +1,4 @@
-"""Static analyzers package exposing BaseAnalyzer and tool wrappers."""
+"""Analyzers package initialization exporting all static analysis tools."""
 
 from typing import List
 
@@ -11,7 +11,7 @@ from analyzers.style_analyzer import StyleAnalyzer
 
 
 def get_default_analyzers() -> List[BaseAnalyzer]:
-    """Returns initialized instances of all standard deterministic static analyzers."""
+    """Instantiates and returns the default suite of five static analyzers."""
     return [
         ASTAnalyzer(),
         PyflakesAnalyzer(),

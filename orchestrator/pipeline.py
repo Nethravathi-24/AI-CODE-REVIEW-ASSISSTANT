@@ -1,6 +1,9 @@
 """Pipeline Orchestrator Skeleton establishing component coordination flow."""
 
+import logging
 from typing import List, Optional
+
+from analyzers import get_default_analyzers
 from core.interfaces import (
     AIReviewerProtocol,
     FusionServiceProtocol,
@@ -15,6 +18,8 @@ from core.issue_model import (
     ReviewSummary,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class CodeReviewPipeline:
     """Orchestrates the end-to-end code review process using injected component protocols."""
@@ -26,7 +31,7 @@ class CodeReviewPipeline:
         fusion_service: Optional[FusionServiceProtocol] = None,
         report_builder: Optional[ReportBuilderProtocol] = None,
     ) -> None:
-        self.analyzers = analyzers or []
+        self.analyzers = analyzers if analyzers is not None else get_default_analyzers()
         self.ai_reviewer = ai_reviewer
         self.fusion_service = fusion_service
         self.report_builder = report_builder
@@ -48,7 +53,16 @@ class CodeReviewPipeline:
         """
         static_issues: List[Issue] = []
         for analyzer in self.analyzers:
-            static_issues.extend(analyzer.analyze(code, filename=filename))
+            try:
+                findings = analyzer.analyze(code, filename=filename)
+                if findings:
+                    static_issues.extend(findings)
+            except Exception as e:
+                analyzer_name = getattr(analyzer, "name", type(analyzer).__name__)
+                logger.error(
+                    f"Analyzer '{analyzer_name}' failed during analysis of {filename}: {e}",
+                    exc_info=True,
+                )
 
         ai_issues: List[Issue] = []
         if self.ai_reviewer:

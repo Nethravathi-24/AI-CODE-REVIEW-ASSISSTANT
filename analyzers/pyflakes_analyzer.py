@@ -1,96 +1,187 @@
-"""Pyflakes static analyzer wrapper capturing undefined variables, unused imports, and name shadowing."""
+"""Pyflakes static analyzer wrapper for defects and unused symbols."""
 
 import ast
-from typing import List
-from pyflakes import checker, messages
+import logging
+from typing import Dict, List
 
 from analyzers.base import BaseAnalyzer
-from core.issue_model import (
-    CategoryEnum,
-    DetectionSourceEnum,
-    Issue,
-    SeverityEnum,
-)
+from core.issue_model import CategoryEnum, Issue
+
+logger = logging.getLogger(__name__)
+
+try:
+    import pyflakes.checker
+    import pyflakes.messages
+    PYFLAKES_AVAILABLE = True
+except ImportError:
+    PYFLAKES_AVAILABLE = False
+    logger.warning("pyflakes library is not available.")
+
+
+# Mapping of Pyflakes message class names to Issue CategoryEnum
+MESSAGE_CATEGORY_MAP: Dict[str, CategoryEnum] = {
+    "UndefinedName": CategoryEnum.RUNTIME_PROBLEM,
+    "UndefinedExport": CategoryEnum.RUNTIME_PROBLEM,
+    "UndefinedLocal": CategoryEnum.RUNTIME_PROBLEM,
+    "ReturnOutsideFunction": CategoryEnum.RUNTIME_PROBLEM,
+    "YieldOutsideFunction": CategoryEnum.RUNTIME_PROBLEM,
+    "BreakOutsideLoop": CategoryEnum.RUNTIME_PROBLEM,
+    "ContinueOutsideLoop": CategoryEnum.RUNTIME_PROBLEM,
+    "DefaultExceptNotLast": CategoryEnum.RUNTIME_PROBLEM,
+    "AssertTuple": CategoryEnum.LOGICAL_BUG,
+    "IfTuple": CategoryEnum.LOGICAL_BUG,
+    "DuplicateArgument": CategoryEnum.LOGICAL_BUG,
+    "MultiValueRepeatedKeyLiteral": CategoryEnum.LOGICAL_BUG,
+    "MultiValueRepeatedKeyVariable": CategoryEnum.LOGICAL_BUG,
+    "UnusedImport": CategoryEnum.CODE_QUALITY,
+    "UnusedVariable": CategoryEnum.CODE_QUALITY,
+    "UnusedAnnotation": CategoryEnum.CODE_QUALITY,
+    "ImportShadowedByLoopVar": CategoryEnum.CODE_QUALITY,
+    "RedefinedWhileUnused": CategoryEnum.CODE_QUALITY,
+    "ImportStarNotPermitted": CategoryEnum.BEST_PRACTICE,
+    "ImportStarUsage": CategoryEnum.BEST_PRACTICE,
+    "ImportStarUsed": CategoryEnum.BEST_PRACTICE,
+    "DoctestSyntaxError": CategoryEnum.SYNTAX_ERROR,
+    "ForwardAnnotationSyntaxError": CategoryEnum.SYNTAX_ERROR,
+    "FutureFeatureNotDefined": CategoryEnum.RUNTIME_PROBLEM,
+    "LateFutureImport": CategoryEnum.BEST_PRACTICE,
+    "PercentFormatInvalidFormat": CategoryEnum.RUNTIME_PROBLEM,
+    "PercentFormatMixedPositionalAndNamed": CategoryEnum.LOGICAL_BUG,
+    "PercentFormatMissingArgument": CategoryEnum.RUNTIME_PROBLEM,
+    "PercentFormatPositionalCountMismatch": CategoryEnum.LOGICAL_BUG,
+    "PercentFormatUnsupportedFormatCharacter": CategoryEnum.RUNTIME_PROBLEM,
+    "StringDotFormatInvalidFormat": CategoryEnum.RUNTIME_PROBLEM,
+    "StringDotFormatMissingArgument": CategoryEnum.RUNTIME_PROBLEM,
+    "StringDotFormatExtraNamedArguments": CategoryEnum.LOGICAL_BUG,
+    "StringDotFormatExtraPositionalArguments": CategoryEnum.LOGICAL_BUG,
+}
+
+MESSAGE_WHY_MAP: Dict[str, str] = {
+    "UndefinedName": (
+        "Referencing undefined variables causes an immediate NameError "
+        "when executed at runtime."
+    ),
+    "UndefinedLocal": (
+        "Referencing a local variable before assignment causes an "
+        "UnboundLocalError at runtime."
+    ),
+    "UndefinedExport": (
+        "Exporting undefined symbols in __all__ leads to AttributeError "
+        "or ImportError for importers."
+    ),
+    "UnusedImport": (
+        "Unused imports clutter module namespace, introduce unnecessary "
+        "loading overhead, and obscure dependencies."
+    ),
+    "UnusedVariable": (
+        "Assigning to variables that are never read wastes resources and "
+        "often indicates incomplete logic or forgotten values."
+    ),
+    "UnusedAnnotation": (
+        "Unused type annotations have no effect and may indicate obsolete "
+        "or dead code."
+    ),
+    "ImportShadowedByLoopVar": (
+        "Loop variables shadowing imported modules or functions can cause "
+        "unexpected runtime name collisions."
+    ),
+    "RedefinedWhileUnused": (
+        "Redefining a variable or function before its previous value was used "
+        "indicates dead code or conflicting assignments."
+    ),
+    "AssertTuple": (
+        "assert (condition, message) is always truthy in Python, causing "
+        "the assertion to never fail."
+    ),
+    "IfTuple": (
+        "if (condition,) evaluates to a non-empty tuple which is always "
+        "truthy, leading to unintended control flow."
+    ),
+    "DuplicateArgument": (
+        "Defining duplicate parameter names in a function signature causes "
+        "ambiguity and syntax/runtime errors."
+    ),
+    "ReturnOutsideFunction": (
+        "'return' statements outside functions cause a SyntaxError during "
+        "execution."
+    ),
+    "YieldOutsideFunction": (
+        "'yield' statements outside functions cause a SyntaxError during "
+        "execution."
+    ),
+    "BreakOutsideLoop": (
+        "'break' statements outside loop constructs cause a SyntaxError "
+        "at runtime."
+    ),
+    "ContinueOutsideLoop": (
+        "'continue' statements outside loop constructs cause a SyntaxError "
+        "at runtime."
+    ),
+    "ImportStarUsed": (
+        "Wildcard imports pollute the local namespace and obscure where "
+        "names originated."
+    ),
+}
 
 
 class PyflakesAnalyzer(BaseAnalyzer):
-    """Programmatic Pyflakes wrapper translating findings to domain Issue models."""
+    """Static analyzer wrapping Pyflakes."""
 
     @property
     def name(self) -> str:
         return "pyflakes"
 
-    def analyze(self, code: str, filename: str = "submitted_snippet") -> List[Issue]:
-        """Runs Pyflakes analysis programmatically on source code text."""
-        issues: List[Issue] = []
+    def analyze(
+        self, code: str, filename: str = "submitted_snippet"
+    ) -> List[Issue]:
+        """Runs Pyflakes analysis in-memory without executing user code."""
+        if not PYFLAKES_AVAILABLE or not code or not code.strip():
+            return []
 
         try:
             tree = ast.parse(code, filename=filename)
-        except (SyntaxError, IndentationError):
-            # Syntax errors are handled by ASTAnalyzer; Pyflakes exits cleanly
-            return issues
+        except SyntaxError:
+            # Syntax errors are handled and reported primarily by ASTAnalyzer
+            return []
+        except Exception as e:
+            logger.error(f"Pyflakes AST parse error: {e}", exc_info=True)
+            return []
 
+        issues: List[Issue] = []
         try:
-            w = checker.Checker(tree, filename=filename)
-        except Exception:
-            # Fault-tolerant fallback if Pyflakes internal inspection fails
-            return issues
+            checker = pyflakes.checker.Checker(tree, filename=filename)
+            for msg in checker.messages:
+                msg_type = type(msg).__name__
+                category = MESSAGE_CATEGORY_MAP.get(
+                    msg_type, CategoryEnum.CODE_QUALITY
+                )
+                why_it_matters = MESSAGE_WHY_MAP.get(
+                    msg_type,
+                    "This static defect impacts code reliability and quality.",
+                )
 
-        for msg in w.messages:
-            line_no = getattr(msg, "lineno", 1)
-            col_no = getattr(msg, "col", 0)
-            snippet = self._get_code_snippet(code, line_no, line_no)
+                description = msg.message % msg.message_args
 
-            msg_type = type(msg).__name__
-            formatted_desc = msg.message % msg.message_args if hasattr(msg, "message_args") else str(msg)
+                line_num = max(1, getattr(msg, "lineno", 1))
+                col_offset = getattr(msg, "col", None)
 
-            if isinstance(msg, messages.UndefinedName):
-                category = CategoryEnum.LOGICAL_BUG
-                severity = SeverityEnum.HIGH
-                why_matters = (
-                    "Referencing an undefined variable raises a NameError at runtime and will crash execution."
+                issues.append(
+                    self.build_issue(
+                        category=category,
+                        description=description,
+                        why_it_matters=why_it_matters,
+                        code=code,
+                        line_start=line_num,
+                        line_end=line_num,
+                        column=col_offset,
+                        confidence=1.0,
+                        file=filename,
+                        references=["pyflakes", msg_type],
+                    )
                 )
-            elif isinstance(msg, messages.UnusedImport):
-                category = CategoryEnum.BEST_PRACTICE
-                severity = SeverityEnum.LOW
-                why_matters = (
-                    "Unused imports clutter namespace, increase startup latency, and can mask dependencies."
-                )
-            elif isinstance(msg, messages.UnusedVariable):
-                category = CategoryEnum.CODE_QUALITY
-                severity = SeverityEnum.LOW
-                why_matters = (
-                    "Unused local variables indicate dead code or incomplete logic."
-                )
-            elif isinstance(msg, messages.DuplicateArgument):
-                category = CategoryEnum.LOGICAL_BUG
-                severity = SeverityEnum.HIGH
-                why_matters = (
-                    "Duplicate parameter names lead to ambiguous argument binding and unexpected behavior."
-                )
-            else:
-                category = CategoryEnum.CODE_QUALITY
-                severity = SeverityEnum.LOW
-                why_matters = "Code structure violates static analysis guidelines."
-
-            issues.append(
-                Issue(
-                    issue_id=self._generate_issue_id("pyflakes", msg_type, line_no),
-                    category=category,
-                    severity=severity,
-                    confidence=1.0,
-                    file=filename,
-                    line_start=line_no,
-                    line_end=line_no,
-                    column=col_no,
-                    code_snippet=snippet,
-                    description=formatted_desc,
-                    why_it_matters=why_matters,
-                    root_cause=f"Pyflakes reported {msg_type}",
-                    detection_source=DetectionSourceEnum.STATIC,
-                    detecting_tool="pyflakes",
-                    references=[f"pyflakes.{msg_type}"],
-                )
+        except Exception as e:
+            logger.error(
+                f"Pyflakes error on {filename}: {e}", exc_info=True
             )
 
         return issues
