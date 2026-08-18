@@ -1,0 +1,6 @@
+"""Streamlit launcher entry point forwarding to app.app.main()."""
+
+from app.app import main
+
+if __name__ == "__main__":
+    main()
