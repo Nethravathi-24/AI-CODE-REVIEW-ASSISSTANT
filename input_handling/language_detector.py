@@ -22,6 +22,7 @@ PYTHON_PATTERNS = [
     (r"\b__init__\b", 0.25, "init_dunder"),
     (r"\blambda\s+[a-zA-Z_]\w*\s*:", 0.20, "lambda_expr"),
     (r"\b(None|True|False)\b", 0.10, "py_literal"),
+    (r"\b(pass|return|yield|raise|global|nonlocal)\b", 0.20, "py_keywords"),
     (r"^\s*print\s*\(", 0.15, "print_call"),
     (r"^\s*#\s+.*", 0.05, "hash_comment"),
 ]
