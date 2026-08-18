@@ -1,5 +1,6 @@
 """Language detection module with heuristic analysis and manual override support."""
 
+import ast
 import os
 import re
 from typing import List, Optional, Tuple
@@ -8,22 +9,23 @@ from input_handling.models import LanguageDetectionResult
 
 # Python characteristic patterns with assigned weights
 PYTHON_PATTERNS = [
-    (r"^\s*def\s+[a-zA-Z_]\w*\s*\(", 0.30, "function_def"),
-    (r"^\s*class\s+[a-zA-Z_]\w*", 0.25, "class_def"),
-    (r"^\s*from\s+[a-zA-Z_][\w.]*\s+import\s+", 0.30, "from_import"),
-    (r"^\s*import\s+[a-zA-Z_][\w.]*", 0.25, "import_stmt"),
-    (r"if\s+__name__\s*==\s*['\"]__main__['\"]:", 0.35, "main_guard"),
-    (r"^\s*async\s+def\s+[a-zA-Z_]\w*\s*\(", 0.30, "async_def"),
-    (r"^\s*elif\s+", 0.20, "elif_block"),
-    (r"^\s*except(\s+[a-zA-Z_][\w.]*(\s+as\s+[a-zA-Z_]\w*)?)?\s*:", 0.25, "except_block"),
-    (r"^\s*with\s+.+\s+as\s+[a-zA-Z_]\w*\s*:", 0.25, "with_stmt"),
-    (r"^\s*@[a-zA-Z_][\w.]*", 0.20, "decorator"),
-    (r"\bself\.[a-zA-Z_]\w*", 0.20, "self_reference"),
-    (r"\b__init__\b", 0.25, "init_dunder"),
-    (r"\blambda\s+[a-zA-Z_]\w*\s*:", 0.20, "lambda_expr"),
-    (r"\b(None|True|False)\b", 0.10, "py_literal"),
-    (r"^\s*print\s*\(", 0.15, "print_call"),
-    (r"^\s*#\s+.*", 0.05, "hash_comment"),
+    (r"^\s*def\s+[a-zA-Z_]\w*\s*\(", 0.35, "function_def"),
+    (r"^\s*class\s+[a-zA-Z_]\w*", 0.30, "class_def"),
+    (r"^\s*from\s+[a-zA-Z_][\w.]*\s+import\s+", 0.35, "from_import"),
+    (r"^\s*import\s+[a-zA-Z_][\w.]*", 0.30, "import_stmt"),
+    (r"if\s+__name__\s*==\s*['\"]__main__['\"]:", 0.40, "main_guard"),
+    (r"^\s*async\s+def\s+[a-zA-Z_]\w*\s*\(", 0.35, "async_def"),
+    (r"^\s*elif\s+", 0.25, "elif_block"),
+    (r"^\s*except(\s+[a-zA-Z_][\w.]*(\s+as\s+[a-zA-Z_]\w*)?)?\s*:", 0.30, "except_block"),
+    (r"^\s*with\s+.+\s+as\s+[a-zA-Z_]\w*\s*:", 0.30, "with_stmt"),
+    (r"^\s*@[a-zA-Z_][\w.]*", 0.25, "decorator"),
+    (r"\bself\.[a-zA-Z_]\w*", 0.25, "self_reference"),
+    (r"\b__init__\b", 0.30, "init_dunder"),
+    (r"\bpass\b", 0.20, "pass_stmt"),
+    (r"\blambda\s+[a-zA-Z_]\w*\s*:", 0.25, "lambda_expr"),
+    (r"\b(None|True|False)\b", 0.15, "py_literal"),
+    (r"^\s*print\s*\(", 0.20, "print_call"),
+    (r"^\s*#\s+.*", 0.10, "hash_comment"),
 ]
 
 # Non-Python signature patterns used to detect alternative languages and penalize Python confidence
@@ -31,10 +33,10 @@ NON_PYTHON_LANGUAGES = [
     (
         "javascript",
         [
-            (r"\bfunction\s+[a-zA-Z_]\w*\s*\(", 0.35),
-            (r"\b(const|let|var)\s+[a-zA-Z_]\w*\s*=", 0.35),
+            (r"\bfunction\s+[a-zA-Z_]\w*\s*\(", 0.40),
+            (r"\b(const|let|var)\s+[a-zA-Z_]\w*\s*=", 0.40),
             (r"\bconsole\.log\s*\(", 0.40),
-            (r"=>\s*\{", 0.30),
+            (r"=>\s*\{", 0.35),
             (r"\b(export\s+default|module\.exports)\b", 0.40),
         ],
     ),
@@ -98,21 +100,23 @@ def detect_language(
     # 1. Manual Override Handling
     if manual_override and manual_override.strip():
         override_clean = manual_override.strip().lower()
-        if override_clean in ("python", "py", "python3", "py3"):
+        if override_clean in ("python", "py", "python3", "py3", "auto-detect", "auto"):
+            if override_clean not in ("auto-detect", "auto"):
+                return LanguageDetectionResult(
+                    language="python",
+                    confidence=1.0,
+                    is_python=True,
+                    detection_method="manual_override",
+                    matched_signatures=["manual_override:python"],
+                )
+        else:
             return LanguageDetectionResult(
-                language="python",
+                language=override_clean,
                 confidence=1.0,
-                is_python=True,
+                is_python=False,
                 detection_method="manual_override",
-                matched_signatures=["manual_override:python"],
+                matched_signatures=[f"manual_override:{override_clean}"],
             )
-        return LanguageDetectionResult(
-            language=override_clean,
-            confidence=1.0,
-            is_python=False,
-            detection_method="manual_override",
-            matched_signatures=[f"manual_override:{override_clean}"],
-        )
 
     matched_signatures: List[str] = []
     confidence_score: float = 0.0
@@ -153,12 +157,22 @@ def detect_language(
         if strongest_non_py_lang:
             matched_signatures.append(f"conflict:{strongest_non_py_lang}")
 
-    # 5. Determine Final Classification
+    # 5. AST Parsing Boost if no non-Python conflicts
+    if strongest_non_py_score < 0.3 and not has_py_extension:
+        try:
+            tree = ast.parse(code)
+            # If contains functions, classes, imports, or statements
+            if any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom, ast.Pass)) for n in ast.walk(tree)):
+                confidence_score += 0.20
+                matched_signatures.append("ast_structural_match")
+        except Exception:
+            pass
+
+    # 6. Determine Final Classification
     final_confidence = max(0.0, min(1.0, round(confidence_score, 2)))
 
     # High-confidence Python
     if has_py_extension:
-        # If extension is .py and not completely overrun by another language
         if final_confidence >= 0.40:
             method = "file_extension" if not (set(matched_signatures) - {f"extension:{ext}"}) else "heuristic"
             return LanguageDetectionResult(
