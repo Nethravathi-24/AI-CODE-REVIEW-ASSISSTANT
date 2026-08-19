@@ -11,6 +11,11 @@ pyflakes>=3.0.0
 bandit>=1.7.5
 radon>=6.0.0
 pycodestyle>=2.10.0
+esprima>=4.0.0
+javalang>=0.13.0
+tree-sitter>=0.23.0
+tree-sitter-javascript>=0.23.0
+tree-sitter-typescript>=0.23.0
 
 # User Interface
 streamlit>=1.30.0
