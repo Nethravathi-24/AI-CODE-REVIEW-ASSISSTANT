@@ -60,10 +60,11 @@ def process_input(
         manual_override=manual_override,
     )
 
-    # 3. Preprocessing Stage (CRLF normalization, AST syntax checking)
+    # 3. Preprocessing Stage (CRLF normalization, language-aware syntax checking)
     preprocessed_result = preprocess_code(
         code=validation_result.raw_code,
         filename=filename or "submitted_snippet",
+        language=language_result.language,
     )
 
     return InputProcessingResult(

@@ -123,6 +123,8 @@ def detect_language(
 
     # 2. File Extension Detection
     has_py_extension = False
+    detected_ext_lang: Optional[str] = None
+
     if filename:
         clean_name = filename.strip()
         if clean_name not in ("submitted_snippet", "<stdin>", ""):
@@ -130,6 +132,15 @@ def detect_language(
             if ext in (".py", ".pyw"):
                 has_py_extension = True
                 confidence_score += 0.60
+                matched_signatures.append(f"extension:{ext}")
+            elif ext in (".js", ".jsx"):
+                detected_ext_lang = "javascript"
+                matched_signatures.append(f"extension:{ext}")
+            elif ext in (".ts", ".tsx"):
+                detected_ext_lang = "typescript"
+                matched_signatures.append(f"extension:{ext}")
+            elif ext == ".java":
+                detected_ext_lang = "java"
                 matched_signatures.append(f"extension:{ext}")
 
     # 3. Python Characteristic Heuristic Pattern Matching
@@ -150,6 +161,16 @@ def detect_language(
         if lang_score > strongest_non_py_score:
             strongest_non_py_score = lang_score
             strongest_non_py_lang = lang_name
+
+    # If extension directly identifies a non-Python language and Python confidence is low
+    if detected_ext_lang and not has_py_extension and confidence_score < 0.40:
+        return LanguageDetectionResult(
+            language=detected_ext_lang,
+            confidence=0.90,
+            is_python=False,
+            detection_method="file_extension",
+            matched_signatures=matched_signatures,
+        )
 
     # Penalize Python confidence if non-Python signatures are strongly present
     if strongest_non_py_score > 0.3:

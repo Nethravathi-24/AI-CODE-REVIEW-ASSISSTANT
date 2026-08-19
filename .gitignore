@@ -35,6 +35,9 @@ env/
 *.swp
 *.swo
 
+# Node.js
+node_modules/
+
 # Testing & Coverage
 .pytest_cache/
 .coverage

@@ -156,19 +156,20 @@ def validate_input(
             filename=filename,
         )
 
-    # 5. File extension validation for Python files if filename is provided
+    # 5. File extension validation for supported source files if filename is provided
     if filename:
         clean_filename = filename.strip()
         ignored_placeholders = {"submitted_snippet", "<stdin>", "snippet.py", ""}
         if clean_filename not in ignored_placeholders:
             ext = os.path.splitext(clean_filename)[1].lower()
-            if ext and ext not in (".py", ".pyw"):
+            supported_exts = (".py", ".pyw", ".js", ".jsx", ".ts", ".tsx", ".java")
+            if ext and ext not in supported_exts:
                 return ValidationResult(
                     is_valid=False,
                     error_type=ValidationErrorType.INVALID_FILE_TYPE,
                     error_message=(
                         f"Invalid file extension '{ext}' for file '{clean_filename}'. "
-                        "Only Python (.py, .pyw) files are supported."
+                        "Supported extensions: .py, .pyw, .js, .jsx, .ts, .tsx, .java"
                     ),
                     byte_size=byte_size,
                     char_count=char_count,

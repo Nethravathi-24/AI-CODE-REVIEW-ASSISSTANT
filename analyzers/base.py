@@ -1,7 +1,7 @@
-"""Base abstract class and shared utilities for deterministic static analyzers."""
+"""Base abstract class and capability metadata interface for static analyzers."""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from core.issue_model import Issue
@@ -13,34 +13,51 @@ class BaseAnalyzer(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Identifier name of the analyzer (e.g. 'ast', 'pyflakes', 'bandit', 'radon', 'pycodestyle')."""
+        """Identifier name of the analyzer."""
         pass
+
+    @property
+    def language(self) -> str:
+        """Target programming language identifier (e.g. 'python', 'javascript', 'typescript', 'java')."""
+        return "python"
+
+    @property
+    def analyzer_type(self) -> str:
+        """Type category of the analyzer (e.g. 'ast_linter', 'ast_walker', 'cli_compiler')."""
+        return "ast_walker"
+
+    @property
+    def tool_name(self) -> str:
+        """Underlying parser or engine name (e.g. 'ast', 'esprima', 'tree_sitter', 'javalang', 'javac')."""
+        return self.name
+
+    def is_available(self) -> bool:
+        """Returns True if the underlying tool/library is installed and operational."""
+        return True
+
+    def get_availability_reason(self) -> str:
+        """Human-readable explanation of tool availability status."""
+        return "Operational" if self.is_available() else "Required analyzer library or binary unavailable"
+
+    def get_metadata(self) -> Dict[str, Any]:
+        """Returns structured capability metadata for UI and reporting facades."""
+        return {
+            "language": self.language,
+            "analyzer": self.name,
+            "tool_name": self.tool_name,
+            "type": self.analyzer_type,
+            "available": self.is_available(),
+            "reason": self.get_availability_reason(),
+        }
 
     @abstractmethod
     def analyze(self, code: str, filename: str = "submitted_snippet") -> List[Issue]:
-        """Runs the static analysis check and converts native output into Issue objects.
-
-        Args:
-            code: Source code text to analyze.
-            filename: Identifier or filename for tracking.
-
-        Returns:
-            List[Issue]: Standardized finding objects (detection_source="static").
-        """
+        """Runs static analysis check and converts output into canonical Issue objects."""
         pass
 
     @staticmethod
     def _get_code_snippet(code: str, line_start: int, line_end: int) -> str:
-        """Extracts a slice of code lines (1-indexed, inclusive).
-
-        Args:
-            code: Full source code.
-            line_start: 1-indexed start line.
-            line_end: 1-indexed end line.
-
-        Returns:
-            str: Extracted snippet text.
-        """
+        """Extracts a slice of code lines (1-indexed, inclusive)."""
         lines = code.splitlines()
         start_idx = max(0, line_start - 1)
         end_idx = min(len(lines), max(start_idx + 1, line_end))

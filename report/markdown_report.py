@@ -12,12 +12,35 @@ class MarkdownReportExporter(ReportExporterProtocol):
         if not result:
             return "# Code Review Report\n\nNo review data available."
 
+        lang_clean = (result.language or "python").lower()
+        if lang_clean in ("python", "py"):
+            parser_info = "Python AST (`ast.parse`) | FULL Validation"
+            analyzer_info = "AST Structural, Pyflakes, Bandit, Radon, Pycodestyle"
+        elif lang_clean in ("javascript", "js", "jsx"):
+            parser_info = "Esprima ECMAScript AST | FULL Validation"
+            analyzer_info = "JSAnalyzer (Esprima AST Walker)"
+        elif lang_clean in ("typescript", "ts", "tsx"):
+            parser_info = "Tree-Sitter TypeScript AST | FULL Validation"
+            analyzer_info = "TSAnalyzer (Tree-Sitter AST Walker)"
+        elif lang_clean == "java":
+            parser_info = "Javalang AST / javac Compiler | FULL Validation"
+            analyzer_info = "JavaAnalyzer (Javalang AST Walker & javac)"
+        else:
+            parser_info = "None | PARTIAL (AI Fallback)"
+            analyzer_info = "None"
+
+        static_count = sum(1 for i in result.issues if i.detection_source.value in ("static", "both"))
+        ai_count = sum(1 for i in result.issues if i.detection_source.value in ("ai", "both"))
+
         lines = [
             "# 🛡️ AI Code Review Assistant — Executive Report",
             "",
             "## 1. Executive Summary",
             f"**Overall Score:** `{result.score.overall_score}/100` ({result.score.label})",
             f"**Language:** `{result.language.upper()}`",
+            f"**Syntax Parser & Validation:** {parser_info}",
+            f"**Active Static Analyzers:** {analyzer_info}",
+            f"**Findings Breakdown:** Total: `{len(result.issues)}` | Static: `{static_count}` | AI Reasoning: `{ai_count}`",
             f"**Execution Summary:** {result.summary.executive_summary}",
             "",
             "### Severity Distribution",

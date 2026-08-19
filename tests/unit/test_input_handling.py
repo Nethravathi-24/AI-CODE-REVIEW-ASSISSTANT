@@ -182,19 +182,17 @@ def test_validate_unicode_characters():
         "library.dll",
         "image.png",
         "document.pdf",
-        "Main.java",
-        "app.js",
         "archive.tar.gz",
     ],
 )
 def test_validate_non_python_file_extensions(invalid_filename):
-    """Test that non-.py/.pyw file extensions are rejected when filename is provided."""
+    """Test that unsupported file extensions are rejected when filename is provided."""
     code = "def foo(): pass"
     result = validate_input(code, filename=invalid_filename)
 
     assert result.is_valid is False
     assert result.error_type == ValidationErrorType.INVALID_FILE_TYPE
-    assert "Only Python (.py, .pyw) files are supported" in result.error_message
+    assert "Invalid file extension" in result.error_message
 
 
 @pytest.mark.parametrize(
@@ -203,6 +201,9 @@ def test_validate_non_python_file_extensions(invalid_filename):
         "main.py",
         "service.PY",
         "gui_app.pyw",
+        "app.js",
+        "service.ts",
+        "Main.java",
         "path/to/module.py",
         "submitted_snippet",
         "<stdin>",

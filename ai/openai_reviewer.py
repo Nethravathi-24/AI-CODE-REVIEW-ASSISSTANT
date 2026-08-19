@@ -16,17 +16,20 @@ logger = logging.getLogger(__name__)
 class OpenAIReviewer(AIReviewerProtocol):
     """OpenAI / LangChain code review engine conforming to AIReviewerProtocol."""
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4o"):
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         settings = get_settings()
         self.api_key = api_key or os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", "")
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("OPENAI_MODEL") or getattr(settings, "OPENAI_MODEL", "gpt-4o")
 
     def is_available(self) -> bool:
         """Returns True if a valid OpenAI API key is present."""
         return bool(self.api_key and self.api_key.strip() and not self.api_key.startswith("your_"))
 
     def review(
-        self, code: str, static_issues: Optional[List[Issue]] = None
+        self,
+        code: str,
+        static_issues: Optional[List[Issue]] = None,
+        language: str = "python",
     ) -> List[Issue]:
         """Runs AI reasoning on code using optional static findings as context.
 
@@ -70,6 +73,7 @@ class OpenAIReviewer(AIReviewerProtocol):
             chain = prompt | structured_llm
             response: AIReviewResponse = chain.invoke({
                 "code": code,
+                "language": language or "python",
                 "static_context": static_context,
             })
 

@@ -39,6 +39,8 @@ from core.scoring import compute_score_and_summary
 _compute_score_and_summary = compute_score_and_summary
 
 
+from analyzers import get_analyzers_for_language, get_default_analyzers
+
 class CodeReviewPipeline:
     """Orchestrates the end-to-end code review process using injected component protocols."""
 
@@ -49,6 +51,7 @@ class CodeReviewPipeline:
         fusion_service: Optional[FusionServiceProtocol] = None,
         report_builder: Optional[ReportBuilderProtocol] = None,
     ) -> None:
+        self.explicit_analyzers = analyzers
         self.analyzers: List[StaticAnalyzerProtocol] = (
             analyzers if analyzers is not None else get_default_analyzers()
         )
@@ -121,9 +124,14 @@ class CodeReviewPipeline:
             )
             is_partial_analysis = True
 
-        # Stage 4: Static Analyzers Execution
+        # Stage 4: Static Analyzers Execution (Language-specific routing)
         if preprocessed.is_valid_syntax:
-            for analyzer in self.analyzers:
+            active_analyzers = (
+                self.explicit_analyzers
+                if self.explicit_analyzers is not None
+                else get_analyzers_for_language(detected_language)
+            )
+            for analyzer in active_analyzers:
                 analyzer_name = getattr(analyzer, "name", type(analyzer).__name__)
                 try:
                     analyzer_issues = analyzer.analyze(effective_code, filename=filename)
@@ -151,7 +159,11 @@ class CodeReviewPipeline:
         ai_issues: List[Issue] = []
         if self.ai_reviewer and preprocessed.is_valid_syntax:
             try:
-                ai_issues = self.ai_reviewer.review(effective_code, static_issues=static_issues)
+                ai_issues = self.ai_reviewer.review(
+                    effective_code,
+                    static_issues=static_issues,
+                    language=detected_language,
+                )
             except Exception as exc:
                 logger.error("AI Reviewer failed: %s", exc, exc_info=True)
                 warnings.append(f"AI review skipped due to execution error: {exc}")
@@ -177,9 +189,9 @@ class CodeReviewPipeline:
 
         for issue in collected_issues:
             if not issue.fix:
-                issue.fix = fix_gen.generate_fix(issue, effective_code)
+                issue.fix = fix_gen.generate_fix(issue, effective_code, language=detected_language)
             if not issue.generated_test:
-                issue.generated_test = test_gen.generate_test(issue, effective_code)
+                issue.generated_test = test_gen.generate_test(issue, effective_code, language=detected_language)
 
         # Stage 9: 7-Dimension Quality Scoring & Summary
         score, summary = _compute_score_and_summary(collected_issues)

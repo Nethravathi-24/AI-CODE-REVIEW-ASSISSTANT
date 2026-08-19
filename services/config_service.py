@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # API Configuration
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_MODEL: str = "gpt-4o"
     HF_MODEL_NAME: str = "distilbert-base-uncased"
 
     # AI Execution Tuning

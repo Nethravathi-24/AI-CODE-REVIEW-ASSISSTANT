@@ -12,7 +12,10 @@ class MockAIReviewer(AIReviewerProtocol):
         self.return_mock_issues = return_mock_issues
 
     def review(
-        self, code: str, static_issues: Optional[List[Issue]] = None
+        self,
+        code: str,
+        static_issues: Optional[List[Issue]] = None,
+        language: str = "python",
     ) -> List[Issue]:
         """Returns deterministic mock AI issues if requested, otherwise an empty list."""
         if not self.return_mock_issues or not code.strip():

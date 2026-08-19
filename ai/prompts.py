@@ -12,9 +12,9 @@ Guidelines:
 - Format output according to the JSON schema specified.
 """
 
-USER_REVIEW_PROMPT_TEMPLATE = """Review the following Python source code:
+USER_REVIEW_PROMPT_TEMPLATE = """Review the following {language} source code:
 
-```python
+```{language}
 {code}
 ```
 

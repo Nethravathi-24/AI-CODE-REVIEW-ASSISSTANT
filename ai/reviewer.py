@@ -11,6 +11,7 @@ from services.config_service import get_settings
 def get_ai_reviewer(
     force_mock: bool = False,
     api_key: Optional[str] = None,
+    model_name: Optional[str] = None,
 ) -> AIReviewerProtocol:
     """Factory function returning the appropriate AI reviewer implementation.
 
@@ -19,11 +20,12 @@ def get_ai_reviewer(
     """
     settings = get_settings()
     effective_key = api_key or os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", "")
+    effective_model = model_name or os.getenv("OPENAI_MODEL") or getattr(settings, "OPENAI_MODEL", "gpt-4o")
 
     if force_mock or not effective_key or not effective_key.strip() or effective_key.startswith("your_"):
         return MockAIReviewer(return_mock_issues=False)
 
-    reviewer = OpenAIReviewer(api_key=effective_key)
+    reviewer = OpenAIReviewer(api_key=effective_key, model_name=effective_model)
     if reviewer.is_available():
         return reviewer
 

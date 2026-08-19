@@ -1,0 +1,31 @@
+{
+  "name": "ai-code-review-assisstant",
+  "version": "1.0.0",
+  "description": "> A production-ready multi-language static-analysis and AI-powered code review engine for Python, JavaScript, TypeScript, and Java source code that validates inputs, detects languages, preprocesses code, runs language-specific static analyzers and AI reasoning chains, fuses findings, calculates 7-dimension quality scores, generates remediations and tests, and exports structured reports.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nethravathi-24/AI-CODE-REVIEW-ASSISSTANT.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Nethravathi-24/AI-CODE-REVIEW-ASSISSTANT/issues"
+  },
+  "homepage": "https://github.com/Nethravathi-24/AI-CODE-REVIEW-ASSISSTANT#readme",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
+    "eslint": "^10.8.1",
+    "typescript": "^6.0.3"
+  }
+}

@@ -36,3 +36,24 @@ def test_factory_returns_mock_when_no_api_key():
     reviewer = get_ai_reviewer(api_key="")
     issues = reviewer.review("def bar(): return 42")
     assert len(issues) == 0
+
+
+def test_openai_reviewer_model_configuration(monkeypatch):
+    """Test 5: OpenAIReviewer respects model_name parameter, OPENAI_MODEL env var, and default."""
+    # 1. Default model is gpt-4o
+    r_default = OpenAIReviewer(api_key="sk-fake-key")
+    assert r_default.model_name == "gpt-4o"
+
+    # 2. Custom model passed in constructor
+    r_custom = OpenAIReviewer(api_key="sk-fake-key", model_name="gpt-4-turbo")
+    assert r_custom.model_name == "gpt-4-turbo"
+
+    # 3. Environment variable OPENAI_MODEL
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    r_env = OpenAIReviewer(api_key="sk-fake-key")
+    assert r_env.model_name == "gpt-4o-mini"
+
+    # 4. get_ai_reviewer factory with env var override
+    r_factory = get_ai_reviewer(api_key="sk-fake-key")
+    assert isinstance(r_factory, OpenAIReviewer)
+    assert r_factory.model_name == "gpt-4o-mini"

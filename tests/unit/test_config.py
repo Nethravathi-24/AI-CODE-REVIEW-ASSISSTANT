@@ -7,7 +7,7 @@ def test_config_defaults():
     """Test configuration default values and missing API key state."""
     settings = Settings(OPENAI_API_KEY="")
     assert settings.OPENAI_API_KEY == ""
-    assert settings.OPENAI_MODEL == "gpt-4o-mini"
+    assert settings.OPENAI_MODEL == "gpt-4o"
     assert settings.AI_TEMPERATURE == 0.2
     assert settings.AI_MAX_TOKENS == 1500
     assert settings.AI_TIMEOUT_SECONDS == 30
