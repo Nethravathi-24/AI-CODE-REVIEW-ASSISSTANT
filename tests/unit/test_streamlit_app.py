@@ -13,7 +13,7 @@ APP_FILE = str((Path(__file__).resolve().parent.parent.parent / "app" / "main.py
 
 def test_streamlit_app_loads_successfully():
     """Test 1: Proves Streamlit app initializes, sets page title, and renders controls."""
-    at = AppTest.from_file(APP_FILE).run()
+    at = AppTest.from_file(APP_FILE).run(timeout=10)
     assert not at.exception
     assert len(at.title) >= 1
     assert "AI Code Review Assistant" in at.title[0].value
@@ -23,11 +23,11 @@ def test_streamlit_app_loads_successfully():
 
 def test_streamlit_app_empty_input_validation():
     """Test 2: Proves clicking 'Review Code' with empty input renders a validation error banner."""
-    at = AppTest.from_file(APP_FILE).run()
-    at.text_area[0].input("   \n\t  ").run()
+    at = AppTest.from_file(APP_FILE).run(timeout=10)
+    at.text_area[0].input("   \n\t  ").run(timeout=10)
 
     review_button = next((b for b in at.button if "Review Code" in b.label), at.button[0])
-    review_button.click().run()
+    review_button.click().run(timeout=10)
 
     assert not at.exception
     assert len(at.error) >= 1
@@ -37,11 +37,11 @@ def test_streamlit_app_empty_input_validation():
 def test_streamlit_app_clean_code_review():
     """Test 3: Proves submitting clean code displays zero issues and clean state success card."""
     clean_code = load_fixture("clean.py")
-    at = AppTest.from_file(APP_FILE).run()
-    at.text_area[0].input(clean_code).run()
+    at = AppTest.from_file(APP_FILE).run(timeout=10)
+    at.text_area[0].input(clean_code).run(timeout=10)
 
     review_button = next((b for b in at.button if "Review Code" in b.label), at.button[0])
-    review_button.click().run()
+    review_button.click().run(timeout=10)
 
     assert not at.exception
     assert len(at.error) == 0
@@ -52,11 +52,11 @@ def test_streamlit_app_clean_code_review():
 def test_streamlit_app_security_code_review():
     """Test 4: Proves submitting security bug code renders issues with severity metrics."""
     sec_code = load_fixture("security_issue.py")
-    at = AppTest.from_file(APP_FILE).run()
-    at.text_area[0].input(sec_code).run()
+    at = AppTest.from_file(APP_FILE).run(timeout=10)
+    at.text_area[0].input(sec_code).run(timeout=10)
 
     review_button = next((b for b in at.button if "Review Code" in b.label), at.button[0])
-    review_button.click().run()
+    review_button.click().run(timeout=10)
 
     assert not at.exception
     assert len(at.error) == 0
