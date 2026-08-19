@@ -42,3 +42,7 @@ node_modules/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Presentation files & Office locks
+*.pptx
+~$*
