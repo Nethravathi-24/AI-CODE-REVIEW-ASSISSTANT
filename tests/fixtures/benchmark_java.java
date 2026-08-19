@@ -1,7 +1,7 @@
 // Benchmark Java sample with intentional security & logical issues
 import java.io.FileInputStream;
 
-public class BenchmarkJava {
+class BenchmarkJava {
     public void executeCommand(String inputCmd) {
         try {
             System.out.println("Executing: " + inputCmd);
