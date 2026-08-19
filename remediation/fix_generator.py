@@ -179,14 +179,30 @@ class FixGenerator(FixGeneratorProtocol):
                 elif "innerhtml" in desc_lower or ".innerhtml" in cur_line.lower():
                     modified_lines[line_idx] = cur_line.replace(".innerHTML", ".textContent")
                     applied_fixes.append(f"Line {issue.line_start}: Replaced innerHTML with textContent")
+                elif "any" in desc_lower or ": any" in cur_line:
+                    modified_lines[line_idx] = cur_line.replace(": any", ": unknown")
+                    applied_fixes.append(f"Line {issue.line_start}: Replaced unsafe 'any' type annotation with 'unknown'")
+                elif "printf(" in cur_line or "System.out.println(" in cur_line:
+                    new_line = cur_line.replace("printf(", "console.log(").replace("System.out.println(", "console.log(")
+                    new_line = re.sub(r'console\.log\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'console.log("\1")', new_line)
+                    modified_lines[line_idx] = new_line
+                    applied_fixes.append(f"Line {issue.line_start}: Replaced non-standard print with console.log()")
 
             elif lang_clean == "java":
                 if "system.out.println" in desc_lower or "System.out.println" in cur_line:
                     modified_lines[line_idx] = cur_line.replace("System.out.println", "logger.info")
                     applied_fixes.append(f"Line {issue.line_start}: Replaced System.out.println with logger.info")
+                elif "printf(" in cur_line or "console.log(" in cur_line:
+                    new_line = cur_line.replace("printf(", "System.out.println(").replace("console.log(", "System.out.println(")
+                    new_line = re.sub(r'System\.out\.println\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'System.out.println("\1")', new_line)
+                    modified_lines[line_idx] = new_line
+                    applied_fixes.append(f"Line {issue.line_start}: Replaced non-standard print with System.out.println()")
                 elif "catch" in desc_lower and "exception" in desc_lower:
                     modified_lines[line_idx] = cur_line.replace("catch (Exception e)", "catch (Exception e) { logger.error(\"Error\", e);")
                     applied_fixes.append(f"Line {issue.line_start}: Added logger statement inside catch block")
+                elif "==" in cur_line and "equals" not in cur_line and ("\"" in cur_line or "str" in desc_lower):
+                    modified_lines[line_idx] = cur_line.replace("==", ".equals(") + ")"
+                    applied_fixes.append(f"Line {issue.line_start}: Replaced == with .equals() string comparison")
 
         # Global pattern pass for un-attributed obvious security/quality risks in file
         if lang_clean in ("python", "py"):
@@ -214,12 +230,43 @@ class FixGenerator(FixGeneratorProtocol):
                     new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
                     modified_lines[idx] = new_line
                     applied_fixes.append(f"Line {idx+1}: Replaced JS 'console.log()' with Python 'print()'")
+                elif "System.out.println(" in line:
+                    new_line = line.replace("System.out.println(", "print(")
+                    new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
+                    modified_lines[idx] = new_line
+                    applied_fixes.append(f"Line {idx+1}: Replaced Java 'System.out.println()' with Python 'print()'")
+
+        elif lang_clean in ("javascript", "typescript", "js", "ts", "jsx", "tsx"):
+            for idx, line in enumerate(modified_lines):
+                if "eval(" in line and "JSON.parse(" not in line:
+                    modified_lines[idx] = line.replace("eval(", "JSON.parse(")
+                    applied_fixes.append(f"Line {idx+1}: Replaced unsafe eval() with JSON.parse()")
+                elif "printf(" in line:
+                    new_line = line.replace("printf(", "console.log(")
+                    new_line = re.sub(r'console\.log\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'console.log("\1")', new_line)
+                    modified_lines[idx] = new_line
+                    applied_fixes.append(f"Line {idx+1}: Replaced non-standard 'printf()' with JS 'console.log()'")
+                elif "System.out.println(" in line:
+                    new_line = line.replace("System.out.println(", "console.log(")
+                    new_line = re.sub(r'console\.log\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'console.log("\1")', new_line)
+                    modified_lines[idx] = new_line
+                    applied_fixes.append(f"Line {idx+1}: Replaced Java 'System.out.println()' with JS 'console.log()'")
 
         elif lang_clean == "java":
             for idx, line in enumerate(modified_lines):
                 if "System.out.println" in line:
                     modified_lines[idx] = line.replace("System.out.println", "logger.info")
                     applied_fixes.append(f"Line {idx+1}: Replaced System.out.println with logger.info")
+                elif "printf(" in line:
+                    new_line = line.replace("printf(", "System.out.println(")
+                    new_line = re.sub(r'System\.out\.println\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'System.out.println("\1")', new_line)
+                    modified_lines[idx] = new_line
+                    applied_fixes.append(f"Line {idx+1}: Replaced non-standard 'printf()' with Java 'System.out.println()'")
+                elif "console.log(" in line:
+                    new_line = line.replace("console.log(", "System.out.println(")
+                    new_line = re.sub(r'System\.out\.println\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'System.out.println("\1")', new_line)
+                    modified_lines[idx] = new_line
+                    applied_fixes.append(f"Line {idx+1}: Replaced JS 'console.log()' with Java 'System.out.println()'")
                 if "catch (Exception" in line or "catch(Exception" in line:
                     if idx + 1 < len(modified_lines) and modified_lines[idx + 1].strip() in ("}", "}"):
                         modified_lines[idx] = line + ' logger.error("Error", e);'

@@ -107,6 +107,11 @@ def main() -> None:
     st.markdown("---")
     review_clicked = render_ready_to_analyze_bar()
 
+    current_state_key = f"{code_input}_{manual_override}"
+    if st.session_state.get("last_analyzed_key") != current_state_key:
+        if not review_clicked:
+            st.session_state.pop("last_pipeline_result", None)
+
     if review_clicked or "last_pipeline_result" in st.session_state:
         if review_clicked:
             if not code_input.strip():
@@ -123,6 +128,7 @@ def main() -> None:
                     manual_override=manual_override,
                 )
                 st.session_state["last_pipeline_result"] = pipeline_result
+                st.session_state["last_analyzed_key"] = current_state_key
 
         pipeline_result = st.session_state.get("last_pipeline_result")
         if pipeline_result and pipeline_result.success and pipeline_result.review_result:
