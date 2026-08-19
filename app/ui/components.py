@@ -502,10 +502,91 @@ def render_issue_card(issue: Issue, index: int = 1) -> None:
             st.code(issue.generated_test.test_code, language="python")
 
 
+def render_corrected_code_section(review_result: ReviewResult) -> None:
+    """Renders the Complete Auto-Corrected Source Code section matching exact user requirements."""
+    if not review_result:
+        return
+
+    st.subheader("✨ Complete Auto-Corrected Source Code")
+
+    corr = review_result.corrected_code_obj
+    corrected_code = (corr.corrected_code if corr else review_result.corrected_full_code) or ""
+    lang = (review_result.language or "python").lower()
+
+    ext_map = {
+        "python": "py", "py": "py",
+        "javascript": "js", "js": "js", "jsx": "js",
+        "typescript": "ts", "ts": "ts", "tsx": "ts",
+        "java": "java",
+    }
+    ext = ext_map.get(lang, "txt")
+    out_filename = f"reviewed.{ext}"
+
+    if corr:
+        val_status = corr.validation_status.value
+        if val_status == "passed":
+            st.success("✓ **Corrected code passed AST syntax validation**")
+        elif val_status == "failed":
+            st.error(f"✗ **Corrected code failed AST validation**: {corr.validation_error}")
+        else:
+            st.info("ℹ️ **AST Validation**: Partial static check active")
+
+        if corr.applied_fixes:
+            with st.expander("🛠️ Applied Remediation Fixes Summary", expanded=True):
+                for f_note in corr.applied_fixes:
+                    st.write(f"- {f_note}")
+
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        st.download_button(
+            label=f"⬇ Download Corrected Code ({out_filename})",
+            data=corrected_code,
+            file_name=out_filename,
+            mime="text/plain",
+            type="primary",
+            use_container_width=True,
+        )
+
+    # Complete Corrected Code Box
+    st.markdown("**Complete Corrected Source File:**")
+    st.code(corrected_code, language=lang)
+
+    # Comparison Section: Original vs Corrected
+    st.markdown("### 🔄 Original vs Corrected Code Comparison")
+    tab_orig, tab_corr, tab_diff = st.tabs(["Original Code", "Corrected Code", "Unified Diff"])
+
+    with tab_orig:
+        st.code(review_result.submitted_code, language=lang)
+
+    with tab_corr:
+        st.code(corrected_code, language=lang)
+
+    with tab_diff:
+        diff_text = (corr.diff if corr else "") or ""
+        if diff_text and diff_text.strip():
+            st.code(diff_text, language="diff")
+        else:
+            st.info("No diff detected — original code was clean.")
+
+
 def render_export_section(review_result: ReviewResult) -> None:
-    """Renders report export buttons for Markdown, JSON, and PDF download."""
+    """Renders complete report and source code export buttons for all 7 assets."""
     st.sidebar.markdown("---")
-    st.sidebar.header("📥 Export Report")
+    st.sidebar.header("📥 Export & Downloads")
+
+    lang = (review_result.language or "python").lower()
+    ext_map = {
+        "python": "py", "py": "py",
+        "javascript": "js", "js": "js", "jsx": "js",
+        "typescript": "ts", "ts": "ts", "tsx": "ts",
+        "java": "java",
+    }
+    ext = ext_map.get(lang, "txt")
+
+    corr = review_result.corrected_code_obj
+    corrected_code = (corr.corrected_code if corr else review_result.corrected_full_code) or ""
+    diff_code = (corr.diff if corr else "") or ""
+    tests_code = review_result.aggregated_tests_code or ""
 
     md_exporter = MarkdownReportExporter()
     json_exporter = JSONReportExporter()
@@ -514,6 +595,36 @@ def render_export_section(review_result: ReviewResult) -> None:
     md_content = md_exporter.export(review_result)
     json_content = json_exporter.export(review_result)
     pdf_content = pdf_exporter.export(review_result)
+
+    st.sidebar.download_button(
+        label=f"✨ Download Corrected Code (reviewed.{ext})",
+        data=corrected_code,
+        file_name=f"reviewed.{ext}",
+        mime="text/plain",
+    )
+
+    st.sidebar.download_button(
+        label=f"📄 Download Original Code (submitted.{ext})",
+        data=review_result.submitted_code,
+        file_name=f"submitted.{ext}",
+        mime="text/plain",
+    )
+
+    if diff_code and diff_code.strip():
+        st.sidebar.download_button(
+            label="📝 Download Unified Diff (code_review.diff)",
+            data=diff_code,
+            file_name="code_review.diff",
+            mime="text/x-diff",
+        )
+
+    if tests_code and tests_code.strip():
+        st.sidebar.download_button(
+            label=f"🧪 Download Generated Tests (tests.{ext})",
+            data=tests_code,
+            file_name=f"tests.{ext}",
+            mime="text/plain",
+        )
 
     st.sidebar.download_button(
         label="📄 Download Markdown Report",

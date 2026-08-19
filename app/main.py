@@ -14,6 +14,7 @@ from analyzers import get_analyzers_for_language
 from app.ui.components import (
     SAMPLE_CODE_SNIPPETS,
     render_analysis_engine_status,
+    render_corrected_code_section,
     render_custom_css,
     render_dashboard_grid,
     render_export_section,
@@ -95,7 +96,7 @@ def main() -> None:
                 st.error("❌ Input code is empty or whitespace only. Please enter code to review.")
                 return
 
-            with st.spinner("⏳ Running Code Review Pipeline (Validating -> Static AST Analysis -> AI Reasoning -> Fusion -> Scoring)..."):
+            with st.spinner("⏳ Running Code Review Pipeline (Validating -> Static AST Analysis -> AI Reasoning -> Fusion -> Scoring -> Auto-Correction)..."):
                 ai_reviewer = get_ai_reviewer(force_mock=not enable_ai)
                 pipeline = CodeReviewPipeline(ai_reviewer=ai_reviewer)
 
@@ -110,11 +111,11 @@ def main() -> None:
         if pipeline_result and pipeline_result.success and pipeline_result.review_result:
             review_result = pipeline_result.review_result
 
-            # Render Dashboard Grid (Quality Score Preview, Severity Distribution, Analysis Engine Status)
+            # 1. Render Dashboard Grid (Quality Score Preview, Severity Distribution, Analysis Engine Status)
             st.markdown("---")
             render_dashboard_grid(review_result, manual_override=manual_override)
 
-            # Render Capability Details
+            # 2. Render Capability Details & Summary Counters
             st.markdown("---")
             render_analysis_engine_status(
                 review_result.language,
@@ -124,7 +125,7 @@ def main() -> None:
             st.markdown("---")
             render_summary_metrics(review_result.summary)
 
-            # Render Findings & Audit Section
+            # 3. Render Findings & Audit Section
             st.markdown("---")
             st.subheader("🔍 Review Findings & Vulnerability Audit")
 
@@ -158,7 +159,11 @@ def main() -> None:
                 for idx, issue in enumerate(filtered_issues, 1):
                     render_issue_card(issue, index=idx)
 
-            # Render Export Buttons in Sidebar
+            # 4. Render Complete Auto-Corrected Source Code Section
+            st.markdown("---")
+            render_corrected_code_section(review_result)
+
+            # 5. Render Export & Download Buttons in Sidebar
             render_export_section(review_result)
         else:
             # Pre-run state dashboard grid

@@ -64,6 +64,22 @@ class Fix(BaseModel):
     validation_notes: Optional[str] = Field(default=None, description="Validation failure details if any")
 
 
+class CorrectedCode(BaseModel):
+    """Complete auto-corrected source code model."""
+
+    original_code: str = Field(default="", description="Original submitted source code")
+    corrected_code: str = Field(default="", description="Complete corrected source code file")
+    language: str = Field(default="python", description="Programming language")
+    is_changed: bool = Field(default=False, description="True if corrections were applied")
+    validation_status: ValidationStatusEnum = Field(
+        default=ValidationStatusEnum.PASSED,
+        description="Syntax validation status of complete corrected code",
+    )
+    validation_error: Optional[str] = Field(default=None, description="Syntax validation error message if failed")
+    applied_fixes: List[str] = Field(default_factory=list, description="Descriptions of fixes applied")
+    diff: str = Field(default="", description="Unified diff between original and corrected source")
+
+
 class GeneratedTest(BaseModel):
     """Automatically generated test case model."""
 
@@ -149,6 +165,7 @@ class ReviewResult(BaseModel):
     language: str = Field(default="python")
     submitted_code: str = Field(default="")
     corrected_full_code: Optional[str] = None
+    corrected_code_obj: Optional[CorrectedCode] = None
     aggregated_tests_code: Optional[str] = None
 
 

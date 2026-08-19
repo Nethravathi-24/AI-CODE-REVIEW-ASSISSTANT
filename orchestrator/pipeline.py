@@ -182,7 +182,7 @@ class CodeReviewPipeline:
                 is_corroborated=is_corroborated,
             )
 
-        # Stage 8: Remediation (Fix & Test Generation)
+        # Stage 8: Remediation (Fix & Test Generation & Full File Auto-Correction)
         from remediation import FixGenerator, TestGenerator
         fix_gen = FixGenerator()
         test_gen = TestGenerator()
@@ -192,6 +192,17 @@ class CodeReviewPipeline:
                 issue.fix = fix_gen.generate_fix(issue, effective_code, language=detected_language)
             if not issue.generated_test:
                 issue.generated_test = test_gen.generate_test(issue, effective_code, language=detected_language)
+
+        corrected_code_obj = fix_gen.generate_full_corrected_code(
+            issues=collected_issues,
+            code=submitted_code or effective_code,
+            language=detected_language,
+            filename=filename,
+        )
+
+        aggregated_tests = "\n\n".join(
+            i.generated_test.test_code for i in collected_issues if i.generated_test and i.generated_test.test_code
+        )
 
         # Stage 9: 7-Dimension Quality Scoring & Summary
         score, summary = _compute_score_and_summary(collected_issues)
@@ -203,6 +214,9 @@ class CodeReviewPipeline:
             summary=summary,
             language=detected_language,
             submitted_code=submitted_code,
+            corrected_full_code=corrected_code_obj.corrected_code,
+            corrected_code_obj=corrected_code_obj,
+            aggregated_tests_code=aggregated_tests if aggregated_tests else None,
         )
 
         elapsed = round(time.perf_counter() - start_time, 4)
