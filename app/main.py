@@ -119,6 +119,12 @@ def main() -> None:
                 return
 
             with st.spinner("⏳ Running Code Review Pipeline (Validating -> Static AST Analysis -> AI Reasoning -> Fusion -> Scoring -> Auto-Correction)..."):
+                import importlib
+                import remediation.fix_generator
+                import orchestrator.pipeline
+                importlib.reload(remediation.fix_generator)
+                importlib.reload(orchestrator.pipeline)
+
                 ai_reviewer = get_ai_reviewer(force_mock=not enable_ai)
                 pipeline = CodeReviewPipeline(ai_reviewer=ai_reviewer)
 

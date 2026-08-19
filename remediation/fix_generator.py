@@ -163,6 +163,8 @@ class FixGenerator(FixGeneratorProtocol):
                 elif "printf" in desc_lower or "printf(" in cur_line or "console.log" in desc_lower or "console.log(" in cur_line or "system.out.println" in desc_lower or "System.out.println(" in cur_line:
                     new_line = cur_line.replace("printf(", "print(").replace("console.log(", "print(").replace("System.out.println(", "print(")
                     new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
+                    if new_line.endswith(";"):
+                        new_line = new_line[:-1].rstrip()
                     modified_lines[line_idx] = new_line
                     applied_fixes.append(f"Line {issue.line_start}: Replaced non-standard print function with Python print()")
 
@@ -223,16 +225,22 @@ class FixGenerator(FixGeneratorProtocol):
                 elif "printf(" in line:
                     new_line = line.replace("printf(", "print(")
                     new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
+                    if new_line.endswith(";"):
+                        new_line = new_line[:-1].rstrip()
                     modified_lines[idx] = new_line
                     applied_fixes.append(f"Line {idx+1}: Replaced non-standard 'printf()' with Python 'print()'")
                 elif "console.log(" in line:
                     new_line = line.replace("console.log(", "print(")
                     new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
+                    if new_line.endswith(";"):
+                        new_line = new_line[:-1].rstrip()
                     modified_lines[idx] = new_line
                     applied_fixes.append(f"Line {idx+1}: Replaced JS 'console.log()' with Python 'print()'")
                 elif "System.out.println(" in line:
                     new_line = line.replace("System.out.println(", "print(")
                     new_line = re.sub(r'print\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', r'print("\1")', new_line)
+                    if new_line.endswith(";"):
+                        new_line = new_line[:-1].rstrip()
                     modified_lines[idx] = new_line
                     applied_fixes.append(f"Line {idx+1}: Replaced Java 'System.out.println()' with Python 'print()'")
 
